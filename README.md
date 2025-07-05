@@ -9,6 +9,7 @@ A Rust application that continuously fetches and displays your Todoist todos wit
 - 🎯 **Priority Visualization**: Color-coded priority indicators
 - 📅 **Due Date Tracking**: Highlights todos due today
 - 🔥 **High Priority Focus**: Separate section for urgent tasks
+- 💾 **File Export**: Saves each refresh to `~/slaist/[date].md` as markdown with GitHub-style checkboxes
 - 🌐 **Error Handling**: Graceful handling of network issues and API errors
 
 ## Prerequisites
@@ -48,8 +49,9 @@ Once running, the application will:
 2. **Display all todos** with priority indicators and due dates
 3. **Show statistics** including active, completed, and high-priority counts
 4. **Highlight urgent tasks** in a separate high-priority section
-5. **Refresh automatically** every 10 seconds
-6. **Continue until stopped** with Ctrl+C
+5. **Save to file** each refresh as markdown in `~/slaist/[date].md`
+6. **Refresh automatically** every 10 seconds
+7. **Continue until stopped** with Ctrl+C
 
 ## Example Output
 
@@ -82,8 +84,22 @@ Once running, the application will:
    📝 Review code changes (P3)
 
 ------------------------------------------------------------
+💾 Saved to: /Users/username/slaist/2023-12-08.md
 ⏳ Waiting 10 seconds until next refresh...
 ```
+
+## File Output
+
+Each refresh creates/updates a markdown file in `~/slaist/[date].md` with:
+
+- **Structured markdown**: Proper headers and formatting
+- **GitHub-style checkboxes**: `- [ ]` for incomplete, `- [x]` for completed todos
+- **All todos**: Complete list with priorities, due dates, and labels
+- **Statistics**: Summary of todo counts and status
+- **High priority section**: Separate listing of urgent tasks
+- **Timestamp**: When the data was last updated
+
+Example file: `~/slaist/2023-12-08.md`
 
 ## Configuration
 
@@ -99,6 +115,7 @@ The application handles various error scenarios:
 - **Network Issues**: Retry with next refresh cycle
 - **API Rate Limits**: Graceful handling with error display
 - **Connection Problems**: Continues running and retries
+- **File Creation Errors**: Warns but continues operation
 
 ## Development
 
@@ -116,6 +133,16 @@ slaist/
 │   └── Cargo.toml         # Library dependencies
 ├── demo.sh                # Demo script
 └── README.md              # This file
+
+## Output Files
+
+The application creates files in `~/slaist/`:
+```
+~/slaist/
+├── 2023-12-08.md         # Today's todos
+├── 2023-12-07.md         # Yesterday's todos
+└── 2023-12-06.md         # Previous day's todos
+```
 ```
 
 ### Running Tests

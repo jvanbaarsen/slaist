@@ -6,6 +6,11 @@
 echo "🚀 Todoist Continuous Refresh Demo"
 echo "=================================="
 echo ""
+echo "This demo will:"
+echo "  • Fetch your todos every 10 seconds"
+echo "  • Display them in the terminal with colors and priorities"
+echo "  • Save each refresh to ~/slaist/[date].md as markdown"
+echo ""
 
 # Check if API token is set
 if [ -z "$TODOIST_API_TOKEN" ]; then
@@ -25,6 +30,7 @@ fi
 
 echo "✅ API token found"
 echo "📱 Starting continuous refresh (every 10 seconds)"
+echo "💾 Each refresh will be saved to ~/slaist/$(date +%Y-%m-%d).md"
 echo "🛑 Press Ctrl+C to stop"
 echo ""
 

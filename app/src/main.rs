@@ -1,5 +1,8 @@
 use chrono::Utc;
 use std::env;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
 use todoist::{TodoistClient, TodoistError};
 use tokio::time::{Duration, sleep};
 
@@ -28,74 +31,46 @@ async fn main() -> Result<(), TodoistError> {
 
     let mut iteration = 1;
 
+    // Create the ~/slaist directory if it doesn't exist
+    let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let slaist_dir = Path::new(&home_dir).join("slaist");
+    if let Err(e) = fs::create_dir_all(&slaist_dir) {
+        eprintln!(
+            "⚠️  Warning: Could not create directory {}: {}",
+            slaist_dir.display(),
+            e
+        );
+    }
+
     loop {
-        let now = Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
-        println!("🔄 Refresh #{} - {}", iteration, now);
+        let now = Utc::now();
+        let timestamp = now.format("%Y-%m-%d %H:%M:%S UTC");
+        let date_str = now.format("%Y-%m-%d");
+        let filename = format!("{}.md", date_str);
+        let file_path = slaist_dir.join(&filename);
+
+        println!("🔄 Refresh #{} - {}", iteration, timestamp);
         println!("{:-<60}", "");
 
+        let mut markdown_content = String::new();
         // Fetch and display todos
         match client.get_all_todos().await {
             Ok(todos) => {
-                println!("📋 Your Todos ({} total):", todos.len());
-
                 if todos.is_empty() {
                     println!("   No todos found! 🎉");
+                    markdown_content.push_str("*No todos found! 🎉*\n\n");
                 } else {
                     // Show first 10 todos
-                    for (i, todo) in todos.iter().take(10).enumerate() {
-                        let priority_icon = match todo.priority {
-                            4 => "🔴",
-                            3 => "🟠",
-                            2 => "🟡",
-                            _ => "⚪",
-                        };
+                    for (i, todo) in todos.iter().enumerate() {
+                        let status_icon = if todo.is_completed { "[x]" } else { "[ ]" };
 
-                        let status_icon = if todo.is_completed { "✅" } else { "📝" };
+                        println!("{} {} {}", i + 1, status_icon, todo.content);
 
-                        println!(
-                            "{} {} {} {}",
-                            i + 1,
-                            status_icon,
-                            priority_icon,
-                            todo.content
-                        );
-
-                        if let Some(due) = &todo.due {
-                            println!("     📅 Due: {}", due.string);
-                        }
-
-                        if !todo.labels.is_empty() {
-                            println!("     🏷️  Labels: {}", todo.labels.join(", "));
-                        }
-                    }
-
-                    if todos.len() > 10 {
-                        println!("   ... and {} more todos", todos.len() - 10);
+                        // Add to markdown with checkbox format
+                        let checkbox = if todo.is_completed { "- [x]" } else { "- [ ]" };
+                        markdown_content.push_str(&format!("{} {}\n", checkbox, todo.content));
                     }
                 }
-
-                // Show some statistics
-                let completed_count = todos.iter().filter(|t| t.is_completed).count();
-                let active_count = todos.len() - completed_count;
-                let high_priority_count = todos.iter().filter(|t| t.priority >= 3).count();
-                let due_today_count = todos
-                    .iter()
-                    .filter(|t| {
-                        if let Some(due) = &t.due {
-                            let today = Utc::now().format("%Y-%m-%d").to_string();
-                            due.date == today
-                        } else {
-                            false
-                        }
-                    })
-                    .count();
-
-                println!("\n📊 Statistics:");
-                println!("   📝 Total todos: {}", todos.len());
-                println!("   ✅ Active todos: {}", active_count);
-                println!("   ✔️  Completed todos: {}", completed_count);
-                println!("   🔥 High priority: {}", high_priority_count);
-                println!("   📅 Due today: {}", due_today_count);
             }
             Err(e) => {
                 eprintln!("❌ Error fetching todos: {}", e);
@@ -111,30 +86,24 @@ async fn main() -> Result<(), TodoistError> {
             }
         }
 
-        // Show high priority todos separately
-        match client
-            .get_todos_with_filters(
-                None,            // project_id
-                None,            // section_id
-                None,            // label
-                Some("p1 | p2"), // filter for high priority
-                None,            // lang
-                None,            // ids
-            )
-            .await
-        {
-            Ok(high_priority_todos) if !high_priority_todos.is_empty() => {
-                println!("\n🔥 High Priority Todos ({}):", high_priority_todos.len());
-                for todo in high_priority_todos.iter().take(5) {
-                    let status_icon = if todo.is_completed { "✅" } else { "📝" };
-                    println!("   {} {} (P{})", status_icon, todo.content, todo.priority);
+        match fs::File::create(&file_path) {
+            Ok(mut file) => {
+                if let Err(e) = file.write_all(markdown_content.as_bytes()) {
+                    eprintln!(
+                        "⚠️  Warning: Could not write to file {}: {}",
+                        file_path.display(),
+                        e
+                    );
+                } else {
+                    println!("💾 Saved to: {}", file_path.display());
                 }
             }
-            Ok(_) => {
-                println!("\n🎉 No high priority todos!");
-            }
-            Err(_) => {
-                // Don't show error for secondary query
+            Err(e) => {
+                eprintln!(
+                    "⚠️  Warning: Could not create file {}: {}",
+                    file_path.display(),
+                    e
+                );
             }
         }
 
