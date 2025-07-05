@@ -7,3 +7,4 @@ default-run = "slaist"
 [dependencies]
 tokio = { workspace = true }
 todoist = { path = "../todoist" }
+chrono = { version = "0.4", features = ["serde"] }

@@ -16,7 +16,7 @@ async fn test_client_creation() {
 async fn test_get_all_todos_with_invalid_token() {
     let client = TodoistClient::new("invalid_token".to_string());
 
-    match client.get_all(None, None, None, None, None, None).await {
+    match client.get_all_todos().await {
         Err(TodoistError::ApiError { status, .. }) => {
             // Should get a 401 Unauthorized or similar error
             assert!(status == 401 || status == 403);
@@ -51,7 +51,7 @@ async fn test_real_api_calls() {
     let client = TodoistClient::new(token);
 
     // Test fetching all todos
-    match client.get_all(None, None, None, None, None, None).await {
+    match client.get_all_todos().await {
         Ok(todos) => {
             println!("Successfully fetched {} todos", todos.len());
 
@@ -68,7 +68,11 @@ async fn test_real_api_calls() {
         }
     }
 
-    match client.get_all(None, None, None, None, None, None).await {
+    // Test fetching todos with filters
+    match client
+        .get_todos_with_filters(None, None, None, None, None, None)
+        .await
+    {
         Ok(todos) => {
             println!("Successfully fetched {} todos with filters", todos.len());
         }
