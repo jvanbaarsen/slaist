@@ -21,8 +21,13 @@ async fn main() -> Result<(), TodoistError> {
     // Create Todoist client
     let client = TodoistClient::new(token);
 
+    let filter = "(today | overdue) & #Work";
+
     // Fetch and display todos
-    match client.get_all_todos().await {
+    match client
+        .get_all(None, None, None, Some(filter), None, None)
+        .await
+    {
         Ok(todos) => {
             println!("\n📋 Your Todos ({} total):", todos.len());
             println!("{:-<60}", "");
@@ -69,30 +74,6 @@ async fn main() -> Result<(), TodoistError> {
         Err(e) => {
             eprintln!("❌ Error fetching todos: {}", e);
             return Err(e);
-        }
-    }
-
-    // Fetch and display projects
-    match client.get_all_projects().await {
-        Ok(projects) => {
-            println!("\n📁 Your Projects ({} total):", projects.len());
-            println!("{:-<60}", "");
-
-            for (i, project) in projects.iter().take(5).enumerate() {
-                let favorite_icon = if project.is_favorite { "⭐" } else { "📁" };
-                println!("{} {} {}", i + 1, favorite_icon, project.name);
-
-                if project.is_shared {
-                    println!("     👥 Shared project");
-                }
-            }
-
-            if projects.len() > 5 {
-                println!("   ... and {} more projects", projects.len() - 5);
-            }
-        }
-        Err(e) => {
-            eprintln!("❌ Error fetching projects: {}", e);
         }
     }
 

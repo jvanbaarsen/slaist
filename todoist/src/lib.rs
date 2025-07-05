@@ -1,6 +1,5 @@
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// A client for interacting with the Todoist API
 pub struct TodoistClient {
@@ -41,23 +40,6 @@ pub struct TodoDue {
     pub timezone: Option<String>,
 }
 
-/// Represents a Todoist project
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Project {
-    pub id: String,
-    pub name: String,
-    pub color: String,
-    pub parent_id: Option<String>,
-    pub order: u32,
-    pub comment_count: u32,
-    pub is_shared: bool,
-    pub is_favorite: bool,
-    pub is_inbox_project: bool,
-    pub is_team_inbox: bool,
-    pub view_style: String,
-    pub url: String,
-}
-
 /// Error types for Todoist operations
 #[derive(Debug, thiserror::Error)]
 pub enum TodoistError {
@@ -92,28 +74,7 @@ impl TodoistClient {
         }
     }
 
-    /// Fetches all active todos from Todoist
-    pub async fn get_all_todos(&self) -> Result<Vec<Todo>, TodoistError> {
-        let url = format!("{}/tasks", self.base_url);
-
-        let response = self.client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            return Err(TodoistError::ApiError {
-                status: response.status().as_u16(),
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string()),
-            });
-        }
-
-        let todos: Vec<Todo> = response.json().await?;
-        Ok(todos)
-    }
-
-    /// Fetches todos with optional filters
-    pub async fn get_todos_with_filters(
+    pub async fn get_all(
         &self,
         project_id: Option<&str>,
         section_id: Option<&str>,
@@ -124,6 +85,12 @@ impl TodoistClient {
     ) -> Result<Vec<Todo>, TodoistError> {
         let mut url = format!("{}/tasks", self.base_url);
         let mut params = Vec::new();
+
+        println!(
+            "Debug: TodoistClient created with base_url: {}, token: {}",
+            self.base_url,
+            &self.token[..std::cmp::min(8, self.token.len())]
+        );
 
         if let Some(project_id) = project_id {
             params.push(format!("project_id={}", project_id));
@@ -164,140 +131,6 @@ impl TodoistClient {
         let todos: Vec<Todo> = response.json().await?;
         Ok(todos)
     }
-
-    /// Fetches all projects from Todoist
-    pub async fn get_all_projects(&self) -> Result<Vec<Project>, TodoistError> {
-        let url = format!("{}/projects", self.base_url);
-
-        let response = self.client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            return Err(TodoistError::ApiError {
-                status: response.status().as_u16(),
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string()),
-            });
-        }
-
-        let projects: Vec<Project> = response.json().await?;
-        Ok(projects)
-    }
-
-    /// Fetches a specific todo by ID
-    pub async fn get_todo(&self, id: &str) -> Result<Todo, TodoistError> {
-        let url = format!("{}/tasks/{}", self.base_url, id);
-
-        let response = self.client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            return Err(TodoistError::ApiError {
-                status: response.status().as_u16(),
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string()),
-            });
-        }
-
-        let todo: Todo = response.json().await?;
-        Ok(todo)
-    }
-
-    /// Marks a todo as completed
-    pub async fn complete_todo(&self, id: &str) -> Result<(), TodoistError> {
-        let url = format!("{}/tasks/{}/close", self.base_url, id);
-
-        let response = self.client.post(&url).send().await?;
-
-        if !response.status().is_success() {
-            return Err(TodoistError::ApiError {
-                status: response.status().as_u16(),
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string()),
-            });
-        }
-
-        Ok(())
-    }
-
-    /// Creates a new todo
-    pub async fn create_todo(
-        &self,
-        content: &str,
-        description: Option<&str>,
-        project_id: Option<&str>,
-        section_id: Option<&str>,
-        parent_id: Option<&str>,
-        order: Option<u32>,
-        labels: Option<Vec<String>>,
-        priority: Option<u8>,
-        due_string: Option<&str>,
-        due_date: Option<&str>,
-        due_datetime: Option<&str>,
-        due_lang: Option<&str>,
-        assignee_id: Option<&str>,
-    ) -> Result<Todo, TodoistError> {
-        let url = format!("{}/tasks", self.base_url);
-
-        let mut body = HashMap::new();
-        body.insert("content", content.to_string());
-
-        if let Some(description) = description {
-            body.insert("description", description.to_string());
-        }
-        if let Some(project_id) = project_id {
-            body.insert("project_id", project_id.to_string());
-        }
-        if let Some(section_id) = section_id {
-            body.insert("section_id", section_id.to_string());
-        }
-        if let Some(parent_id) = parent_id {
-            body.insert("parent_id", parent_id.to_string());
-        }
-        if let Some(order) = order {
-            body.insert("order", order.to_string());
-        }
-        if let Some(labels) = labels {
-            body.insert("labels", labels.join(","));
-        }
-        if let Some(priority) = priority {
-            body.insert("priority", priority.to_string());
-        }
-        if let Some(due_string) = due_string {
-            body.insert("due_string", due_string.to_string());
-        }
-        if let Some(due_date) = due_date {
-            body.insert("due_date", due_date.to_string());
-        }
-        if let Some(due_datetime) = due_datetime {
-            body.insert("due_datetime", due_datetime.to_string());
-        }
-        if let Some(due_lang) = due_lang {
-            body.insert("due_lang", due_lang.to_string());
-        }
-        if let Some(assignee_id) = assignee_id {
-            body.insert("assignee_id", assignee_id.to_string());
-        }
-
-        let response = self.client.post(&url).json(&body).send().await?;
-
-        if !response.status().is_success() {
-            return Err(TodoistError::ApiError {
-                status: response.status().as_u16(),
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string()),
-            });
-        }
-
-        let todo: Todo = response.json().await?;
-        Ok(todo)
-    }
 }
 
 // Helper function for creating a client - useful for testing
@@ -320,7 +153,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_all_todos_with_invalid_token() {
         let client = TodoistClient::new("invalid_token".to_string());
-        let result = client.get_all_todos().await;
+        let result = client.get_all(None, None, None, None, None, None).await;
         assert!(result.is_err());
     }
 }
