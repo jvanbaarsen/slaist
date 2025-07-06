@@ -1,6 +1,6 @@
 # Slaist - Todoist Continuous Refresh
 
-A Rust application that continuously fetches and displays your Todoist todos with automatic refresh every 10 seconds.
+A Rust application that continuously fetches and displays your Todoist todos with automatic refresh every 10 seconds. Uses the latest Todoist API v1 with enhanced filtering capabilities.
 
 ## Features
 
@@ -126,9 +126,9 @@ slaist/
 ├── app/                    # Main application
 │   ├── src/main.rs        # Continuous refresh logic
 │   └── Cargo.toml         # App dependencies
-├── todoist/               # Todoist API client library
-│   ├── src/lib.rs         # Client implementation
-│   ├── examples/          # Usage examples
+├── todoist/               # Todoist API v1 client library
+│   ├── src/lib.rs         # Client implementation with v1 endpoints
+│   ├── examples/          # Usage examples (fetch_todos)
 │   ├── tests/             # Integration tests
 │   └── Cargo.toml         # Library dependencies
 ├── demo.sh                # Demo script
@@ -167,6 +167,15 @@ cargo run --package slaist
 # Run with demo script
 ./demo.sh
 ```
+
+## Todoist API v1 Features
+
+**Recently upgraded to Todoist API v1** with improved performance and new filtering capabilities:
+
+- **Enhanced Filtering**: Uses the new `/api/v1/tasks/filter` endpoint for advanced query syntax
+- **Better Performance**: Optimized API endpoints with cursor-based pagination
+- **Modern Response Format**: Updated data structures matching the latest API
+- **Query Language**: Support for complex filters like `"today | overdue"`, `"p1 & @work"`
 
 ## Todoist API Features
 

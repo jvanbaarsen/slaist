@@ -1,6 +1,6 @@
 # Todoist Rust Client
 
-A Rust client library for interacting with the Todoist API. This crate provides a simple and ergonomic way to fetch todos, projects, and perform other operations with your Todoist account.
+A Rust client library for interacting with the Todoist API v1. This crate provides a simple and ergonomic way to fetch todos, projects, and perform other operations with your Todoist account.
 
 ## Features
 
@@ -44,15 +44,21 @@ async fn main() -> Result<(), TodoistError> {
     let token = env::var("TODOIST_API_TOKEN")?;
     let client = TodoistClient::new(token);
 
-    // Fetch all todos
-    let todos = client.get_all_todos().await?;
+    // Fetch all todos (no filter)
+    let todos = client.get_all_todos(None).await?;
     
     println!("You have {} todos:", todos.len());
     for todo in todos {
         println!("- {}", todo.content);
-        if let Some(due) = todo.due {
-            println!("  Due: {}", due.string);
-        }
+    }
+
+    // Fetch only today's todos using optional query parameter
+    let today_todos = client.get_all_todos(Some("today")).await?;
+    
+    println!("You have {} todos for today:", today_todos.len());
+    for todo in today_todos {
+        println!("- {}", todo.content);
+    }
     }
 
     Ok(())
@@ -205,12 +211,41 @@ cargo run --example fetch_todos
 ### TodoistClient Methods
 
 - `new(token: String)` - Create a new client
-- `get_all_todos()` - Fetch all active todos
-- `get_todos_with_filters(...)` - Fetch todos with filters
+- `get_all_todos(query: Option<&str>)` - Fetch all active todos, optionally filtered by query
+- `get_todos_with_filters(project_id, section_id, parent_id, label, ids)` - Fetch todos with filters
+- `get_todos_by_filter(query, lang)` - Fetch todos using the new filter endpoint with query syntax
 - `get_all_projects()` - Fetch all projects
 - `get_todo(id: &str)` - Fetch a specific todo
-- `complete_todo(id: &str)` - Mark a todo as completed
+- `complete_todo(id)` - Mark todo as complete  
 - `create_todo(...)` - Create a new todo
+
+### Filter Query Examples
+
+Both `get_all_todos(Some(query))` and `get_todos_by_filter` methods support Todoist's powerful filter syntax:
+
+- `"today"` - Tasks due today
+- `"overdue"` - Overdue tasks  
+- `"p1"` - Priority 1 tasks
+- `"@label_name"` - Tasks with specific label
+- `"#project_name"` - Tasks in specific project
+- `"today | overdue"` - Today's tasks OR overdue tasks
+- `"p1 & today"` - Priority 1 AND due today
+
+### Method Usage Examples
+
+```rust
+// Fetch all todos
+let all_todos = client.get_all_todos(None).await?;
+
+// Fetch today's todos using optional parameter
+let today_todos = client.get_all_todos(Some("today")).await?;
+
+// Fetch high priority todos using optional parameter  
+let urgent_todos = client.get_all_todos(Some("p1")).await?;
+
+// Or use the dedicated filter method for more control
+let filtered_todos = client.get_todos_by_filter("today & p1", Some("en")).await?;
+```
 
 ## Requirements
 

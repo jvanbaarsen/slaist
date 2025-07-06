@@ -16,7 +16,7 @@ async fn test_client_creation() {
 async fn test_get_all_todos_with_invalid_token() {
     let client = TodoistClient::new("invalid_token".to_string());
 
-    match client.get_all_todos().await {
+    match client.get_all_todos(None).await {
         Err(TodoistError::ApiError { status, .. }) => {
             // Should get a 401 Unauthorized or similar error
             assert!(status == 401 || status == 403);
@@ -51,7 +51,7 @@ async fn test_real_api_calls() {
     let client = TodoistClient::new(token);
 
     // Test fetching all todos
-    match client.get_all_todos().await {
+    match client.get_all_todos(None).await {
         Ok(todos) => {
             println!("Successfully fetched {} todos", todos.len());
 
@@ -60,7 +60,8 @@ async fn test_real_api_calls() {
                 assert!(!todo.id.is_empty());
                 assert!(!todo.content.is_empty());
                 assert!(!todo.project_id.is_empty());
-                assert!(!todo.url.is_empty());
+                assert!(!todo.user_id.is_empty());
+                assert!(!todo.added_at.is_empty());
             }
         }
         Err(e) => {
@@ -70,7 +71,7 @@ async fn test_real_api_calls() {
 
     // Test fetching todos with filters
     match client
-        .get_todos_with_filters(None, None, None, None, None, None)
+        .get_todos_with_filters(None, None, None, None, None)
         .await
     {
         Ok(todos) => {
@@ -78,6 +79,19 @@ async fn test_real_api_calls() {
         }
         Err(e) => {
             panic!("Failed to fetch todos with filters: {}", e);
+        }
+    }
+
+    // Test fetching todos with new filter endpoint
+    match client.get_todos_by_filter("today", Some("en")).await {
+        Ok(todos) => {
+            println!(
+                "Successfully fetched {} todos with filter query",
+                todos.len()
+            );
+        }
+        Err(e) => {
+            panic!("Failed to fetch todos with filter query: {}", e);
         }
     }
 }

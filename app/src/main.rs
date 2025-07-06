@@ -54,7 +54,10 @@ async fn main() -> Result<(), TodoistError> {
 
         let mut markdown_content = String::new();
         // Fetch and display todos
-        match client.get_all_todos().await {
+        match client
+            .get_all_todos(Some("(today | overdue) & #Work"))
+            .await
+        {
             Ok(todos) => {
                 if todos.is_empty() {
                     println!("   No todos found! 🎉");
@@ -62,12 +65,12 @@ async fn main() -> Result<(), TodoistError> {
                 } else {
                     // Show first 10 todos
                     for (i, todo) in todos.iter().enumerate() {
-                        let status_icon = if todo.is_completed { "[x]" } else { "[ ]" };
+                        let status_icon = if todo.checked { "[x]" } else { "[ ]" };
 
                         println!("{} {} {}", i + 1, status_icon, todo.content);
 
                         // Add to markdown with checkbox format
-                        let checkbox = if todo.is_completed { "- [x]" } else { "- [ ]" };
+                        let checkbox = if todo.checked { "- [x]" } else { "- [ ]" };
                         markdown_content.push_str(&format!("{} {}\n", checkbox, todo.content));
                     }
                 }
