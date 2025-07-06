@@ -1,0 +1,2 @@
+- Never make an example folder
+- Tests should be in the same file

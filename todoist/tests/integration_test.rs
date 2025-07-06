@@ -68,30 +68,4 @@ async fn test_real_api_calls() {
             panic!("Failed to fetch todos: {}", e);
         }
     }
-
-    // Test fetching todos with filters
-    match client
-        .get_todos_with_filters(None, None, None, None, None)
-        .await
-    {
-        Ok(todos) => {
-            println!("Successfully fetched {} todos with filters", todos.len());
-        }
-        Err(e) => {
-            panic!("Failed to fetch todos with filters: {}", e);
-        }
-    }
-
-    // Test fetching todos with new filter endpoint
-    match client.get_todos_by_filter("today", Some("en")).await {
-        Ok(todos) => {
-            println!(
-                "Successfully fetched {} todos with filter query",
-                todos.len()
-            );
-        }
-        Err(e) => {
-            panic!("Failed to fetch todos with filter query: {}", e);
-        }
-    }
 }
