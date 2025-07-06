@@ -24,7 +24,7 @@ async fn main() -> Result<(), TodoistError> {
     };
 
     // Create Todoist client
-    let client = TodoistClient::new(token);
+    let client = TodoistClient::new(token, Some("(overdue | today) & #Work".to_string()));
 
     println!("📱 Fetching todos every 10 seconds... (Press Ctrl+C to stop)");
     println!();
@@ -58,10 +58,7 @@ async fn main() -> Result<(), TodoistError> {
         println!("📋 Active Todos:");
         markdown_content.push_str("## Active Todos\n\n");
 
-        match client
-            .get_all_todos(Some("(today | overdue) & #Work"))
-            .await
-        {
+        match client.get_all_todos().await {
             Ok(todos) => {
                 if todos.is_empty() {
                     println!("   No active todos found! 🎉");

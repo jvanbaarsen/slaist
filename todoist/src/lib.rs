@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct TodoistClient {
     client: reqwest::Client,
     base_url: String,
+    query: Option<String>,
 }
 
 /// Represents a Todoist task/todo item
@@ -78,7 +79,7 @@ pub enum TodoistError {
 
 impl TodoistClient {
     /// Creates a new Todoist client with the provided API token
-    pub fn new(token: String) -> Self {
+    pub fn new(token: String, query: Option<String>) -> Self {
         let mut headers = HeaderMap::new();
         headers.insert(
             AUTHORIZATION,
@@ -93,14 +94,15 @@ impl TodoistClient {
         Self {
             client,
             base_url: "https://api.todoist.com/api/v1".to_string(),
+            query: Some(query.unwrap_or_else(|| "(overdue | today) & #Work".to_string())),
         }
     }
 
     /// Fetches all active todos from Todoist, optionally filtered by query
-    pub async fn get_all_todos(&self, query: Option<&str>) -> Result<Vec<Todo>, TodoistError> {
+    pub async fn get_all_todos(&self) -> Result<Vec<Todo>, TodoistError> {
         // If query is provided, use the filter endpoint
-        if let Some(q) = query {
-            return self.get_todos_by_filter(q, None).await;
+        if let Some(q) = &self.query {
+            return self.get_todos_by_filter(&q, None).await;
         }
 
         // Otherwise use the standard tasks endpoint
@@ -205,7 +207,11 @@ impl TodoistClient {
         let response = self
             .client
             .get(&url)
-            .query(&[("since", since), ("until", until)])
+            .query(&[
+                ("since", since),
+                ("until", until),
+                ("filter_query", self.query.as_ref().unwrap().as_str()),
+            ])
             .send()
             .await?;
 
@@ -231,7 +237,7 @@ impl TodoistClient {
 
 // Helper function for creating a client - useful for testing
 pub fn create_client(token: String) -> TodoistClient {
-    TodoistClient::new(token)
+    TodoistClient::new(token, None)
 }
 
 #[cfg(test)]
@@ -241,35 +247,35 @@ mod tests {
     #[test]
     fn test_client_creation() {
         let token = "test_token".to_string();
-        let _client = TodoistClient::new(token);
+        let _client = TodoistClient::new(token, None);
         // Just verify that the client was created without panicking
         assert!(true);
     }
 
     #[tokio::test]
     async fn test_get_all_todos_with_invalid_token() {
-        let client = TodoistClient::new("invalid_token".to_string());
+        let client = TodoistClient::new("invalid_token".to_string(), None);
         let result = client.get_all_todos(None).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_get_todos_completed_today_with_invalid_token() {
-        let client = TodoistClient::new("invalid_token".to_string());
+        let client = TodoistClient::new("invalid_token".to_string(), None);
         let result = client.get_todos_completed_today().await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_get_todos_completed_on_date_with_invalid_token() {
-        let client = TodoistClient::new("invalid_token".to_string());
+        let client = TodoistClient::new("invalid_token".to_string(), None);
         let result = client.get_todos_completed_on_date("2023-12-25").await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_get_todos_completed_by_date_range_with_invalid_token() {
-        let client = TodoistClient::new("invalid_token".to_string());
+        let client = TodoistClient::new("invalid_token".to_string(), None);
         let result = client
             .get_todos_completed_by_date_range("2023-12-25T00:00:00Z", "2023-12-25T23:59:59Z")
             .await;
