@@ -59,6 +59,13 @@ async fn main() -> Result<(), TodoistError> {
     for todo in today_todos {
         println!("- {}", todo.content);
     }
+
+    // Fetch todos completed today
+    let completed_today = client.get_todos_completed_today().await?;
+    
+    println!("You completed {} todos today:", completed_today.len());
+    for todo in completed_today {
+        println!("✅ {}", todo.content);
     }
 
     Ok(())
@@ -118,6 +125,40 @@ for project in projects {
 }
 ```
 
+### Getting Completed Todos
+
+```rust
+// Get todos that were completed today
+let completed_today = client.get_todos_completed_today().await?;
+
+println!("Completed today:");
+for todo in completed_today {
+    println!("✅ {} (completed at: {})", 
+        todo.content, 
+        todo.completed_at.as_ref().unwrap_or(&"unknown".to_string())
+    );
+}
+
+// Get todos completed on a specific date
+let completed_yesterday = client.get_todos_completed_on_date("2023-12-24").await?;
+
+println!("Completed yesterday:");
+for todo in completed_yesterday {
+    println!("✅ {}", todo.content);
+}
+
+// Get todos completed within a date range (using RFC3339 format)
+let completed_in_range = client.get_todos_completed_by_date_range(
+    "2023-12-20T00:00:00Z", 
+    "2023-12-25T23:59:59Z"
+).await?;
+
+println!("Completed in date range:");
+for todo in completed_in_range {
+    println!("✅ {}", todo.content);
+}
+```
+
 ### Creating and Completing Todos
 
 ```rust
@@ -151,12 +192,12 @@ The main `Todo` struct contains:
 - `id`: Unique identifier
 - `content`: The todo text
 - `description`: Optional description
-- `is_completed`: Completion status
+- `checked`: Completion status
 - `priority`: Priority level (1-4)
 - `project_id`: Associated project
 - `labels`: Array of labels
 - `due`: Due date information
-- `url`: Todoist URL for the todo
+- `completed_at`: When the todo was completed (if applicable)
 - And more...
 
 ### Project
@@ -196,14 +237,17 @@ match client.get_all_todos().await {
 
 ## Running Examples
 
-You can run the included example to see the crate in action:
+You can run the included examples to see the crate in action:
 
 ```bash
 # Set your API token
 export TODOIST_API_TOKEN="your_token_here"
 
-# Run the example
+# Run the basic example
 cargo run --example fetch_todos
+
+# Run the completed todos example
+cargo run --example completed_todos
 ```
 
 ## API Reference
@@ -212,6 +256,9 @@ cargo run --example fetch_todos
 
 - `new(token: String)` - Create a new client
 - `get_all_todos(query: Option<&str>)` - Fetch all active todos, optionally filtered by query
+- `get_todos_completed_today()` - Fetch all todos completed today
+- `get_todos_completed_on_date(date: &str)` - Fetch todos completed on a specific date (YYYY-MM-DD format)
+- `get_todos_completed_by_date_range(since: &str, until: &str)` - Fetch todos completed within a date range (RFC3339 format)
 - `get_todos_with_filters(project_id, section_id, parent_id, label, ids)` - Fetch todos with filters
 - `get_todos_by_filter(query, lang)` - Fetch todos using the new filter endpoint with query syntax
 - `get_all_projects()` - Fetch all projects
@@ -245,6 +292,18 @@ let urgent_todos = client.get_all_todos(Some("p1")).await?;
 
 // Or use the dedicated filter method for more control
 let filtered_todos = client.get_todos_by_filter("today & p1", Some("en")).await?;
+
+// Get todos completed today
+let completed_today = client.get_todos_completed_today().await?;
+
+// Get todos completed on a specific date
+let completed_on_date = client.get_todos_completed_on_date("2023-12-25").await?;
+
+// Get todos completed within a date range
+let completed_in_range = client.get_todos_completed_by_date_range(
+    "2023-12-20T00:00:00Z", 
+    "2023-12-25T23:59:59Z"
+).await?;
 ```
 
 ## Requirements

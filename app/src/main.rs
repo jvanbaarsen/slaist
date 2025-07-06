@@ -53,17 +53,21 @@ async fn main() -> Result<(), TodoistError> {
         println!("{:-<60}", "");
 
         let mut markdown_content = String::new();
-        // Fetch and display todos
+
+        // Fetch and display active todos
+        println!("📋 Active Todos:");
+        markdown_content.push_str("## Active Todos\n\n");
+
         match client
             .get_all_todos(Some("(today | overdue) & #Work"))
             .await
         {
             Ok(todos) => {
                 if todos.is_empty() {
-                    println!("   No todos found! 🎉");
-                    markdown_content.push_str("*No todos found! 🎉*\n\n");
+                    println!("   No active todos found! 🎉");
+                    markdown_content.push_str("*No active todos found! 🎉*\n\n");
                 } else {
-                    // Show first 10 todos
+                    // Show active todos
                     for (i, todo) in todos.iter().enumerate() {
                         let status_icon = if todo.checked { "[x]" } else { "[ ]" };
 
@@ -76,7 +80,37 @@ async fn main() -> Result<(), TodoistError> {
                 }
             }
             Err(e) => {
-                eprintln!("❌ Error fetching todos: {}", e);
+                eprintln!("❌ Error fetching active todos: {}", e);
+                match e {
+                    TodoistError::ApiError { status, .. } if status == 401 => {
+                        eprintln!("🔑 Check your API token - it might be invalid or expired");
+                    }
+                    TodoistError::RequestFailed(_) => {
+                        eprintln!("🌐 Network error - check your internet connection");
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Fetch and display completed todos from today
+        println!("\n✅ Completed Today:");
+        markdown_content.push_str("\n## Completed Today\n\n");
+
+        match client.get_todos_completed_today().await {
+            Ok(completed_todos) => {
+                if completed_todos.is_empty() {
+                    println!("   No todos completed today yet.");
+                    markdown_content.push_str("*No todos completed today yet.*\n\n");
+                } else {
+                    for (i, todo) in completed_todos.iter().enumerate() {
+                        println!("{} [x] {}", i + 1, todo.content);
+                        markdown_content.push_str(&format!("- [x] {}\n", todo.content));
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("❌ Error fetching completed todos: {}", e);
                 match e {
                     TodoistError::ApiError { status, .. } if status == 401 => {
                         eprintln!("🔑 Check your API token - it might be invalid or expired");
