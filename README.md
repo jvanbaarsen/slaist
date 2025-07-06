@@ -1,16 +1,6 @@
-# Slaist - Todoist Continuous Refresh
+# Slaist - Todoist To Slack sync
 
-A Rust application that continuously fetches and displays your Todoist todos with automatic refresh every 10 seconds. Uses the latest Todoist API v1 with enhanced filtering capabilities.
-
-## Features
-
-- 🔄 **Continuous Refresh**: Automatically fetches todos every 10 seconds
-- 📊 **Real-time Statistics**: Shows active, completed, and high-priority todo counts
-- 🎯 **Priority Visualization**: Color-coded priority indicators
-- 📅 **Due Date Tracking**: Highlights todos due today
-- 🔥 **High Priority Focus**: Separate section for urgent tasks
-- 💾 **File Export**: Saves each refresh to `~/slaist/[date].md` as markdown with GitHub-style checkboxes
-- 🌐 **Error Handling**: Graceful handling of network issues and API errors
+A Rust application that continuously fetches Todoist todo's and posts them to a Slack channel
 
 ## Prerequisites
 
@@ -41,53 +31,6 @@ A Rust application that continuously fetches and displays your Todoist todos wit
    ./demo.sh
    ```
 
-## Usage
-
-Once running, the application will:
-
-1. **Connect to Todoist** using your API token
-2. **Display all todos** with priority indicators and due dates
-3. **Show statistics** including active, completed, and high-priority counts
-4. **Highlight urgent tasks** in a separate high-priority section
-5. **Save to file** each refresh as markdown in `~/slaist/[date].md`
-6. **Refresh automatically** every 10 seconds
-7. **Continue until stopped** with Ctrl+C
-
-## Example Output
-
-```
-🚀 Todoist Client - Continuous Refresh
-=======================================
-📱 Fetching todos every 10 seconds... (Press Ctrl+C to stop)
-
-🔄 Refresh #1 - 2023-12-08 14:30:15 UTC
-------------------------------------------------------------
-📋 Your Todos (8 total):
-1 📝 🔴 Complete project proposal
-     📅 Due: today
-     🏷️  Labels: @work, @urgent
-2 📝 🟠 Review code changes
-3 📝 🟡 Buy groceries
-     📅 Due: tomorrow
-4 📝 ⚪ Call dentist
-   ... and 4 more todos
-
-📊 Statistics:
-   📝 Total todos: 8
-   ✅ Active todos: 6
-   ✔️  Completed todos: 2
-   🔥 High priority: 2
-   📅 Due today: 1
-
-🔥 High Priority Todos (2):
-   📝 Complete project proposal (P4)
-   📝 Review code changes (P3)
-
-------------------------------------------------------------
-💾 Saved to: /Users/username/slaist/2023-12-08.md
-⏳ Waiting 10 seconds until next refresh...
-```
-
 ## File Output
 
 Each refresh creates/updates a markdown file in `~/slaist/[date].md` with:
@@ -107,44 +50,6 @@ The application uses environment variables for configuration:
 
 - `TODOIST_API_TOKEN`: Your Todoist API token (required)
 
-## Error Handling
-
-The application handles various error scenarios:
-
-- **Invalid API Token**: Clear message with instructions
-- **Network Issues**: Retry with next refresh cycle
-- **API Rate Limits**: Graceful handling with error display
-- **Connection Problems**: Continues running and retries
-- **File Creation Errors**: Warns but continues operation
-
-## Development
-
-### Project Structure
-
-```
-slaist/
-├── app/                    # Main application
-│   ├── src/main.rs        # Continuous refresh logic
-│   └── Cargo.toml         # App dependencies
-├── todoist/               # Todoist API v1 client library
-│   ├── src/lib.rs         # Client implementation with v1 endpoints
-│   ├── examples/          # Usage examples (fetch_todos)
-│   ├── tests/             # Integration tests
-│   └── Cargo.toml         # Library dependencies
-├── demo.sh                # Demo script
-└── README.md              # This file
-
-## Output Files
-
-The application creates files in `~/slaist/`:
-```
-~/slaist/
-├── 2023-12-08.md         # Today's todos
-├── 2023-12-07.md         # Yesterday's todos
-└── 2023-12-06.md         # Previous day's todos
-```
-```
-
 ### Running Tests
 
 ```bash
@@ -154,48 +59,6 @@ cargo test --package todoist
 # Test the main application
 cargo test --package slaist
 ```
-
-### Example Usage
-
-```bash
-# Run with detailed example
-cargo run --example fetch_todos
-
-# Run the continuous refresh
-cargo run --package slaist
-
-# Run with demo script
-./demo.sh
-```
-
-## Todoist API v1 Features
-
-**Recently upgraded to Todoist API v1** with improved performance and new filtering capabilities:
-
-- **Enhanced Filtering**: Uses the new `/api/v1/tasks/filter` endpoint for advanced query syntax
-- **Better Performance**: Optimized API endpoints with cursor-based pagination
-- **Modern Response Format**: Updated data structures matching the latest API
-- **Query Language**: Support for complex filters like `"today | overdue"`, `"p1 & @work"`
-
-## Todoist API Features
-
-The underlying library supports:
-
-- ✅ Fetch all todos
-- ✅ Filter todos by project, section, label, priority
-- ✅ Get individual todos
-- ✅ Mark todos as completed
-- ✅ Create new todos
-- ✅ Fetch all projects
-- ✅ Comprehensive error handling
-
-## Dependencies
-
-- **tokio**: Async runtime
-- **reqwest**: HTTP client
-- **serde**: JSON serialization
-- **chrono**: Date/time handling
-- **thiserror**: Error handling
 
 ## License
 
@@ -208,11 +71,3 @@ This project is licensed under the MIT License.
 3. Make your changes
 4. Add tests
 5. Submit a pull request
-
-## Support
-
-For issues and questions:
-1. Check the error messages for API token or network issues
-2. Verify your Todoist API token is valid
-3. Check your internet connection
-4. Review the logs for detailed error information
