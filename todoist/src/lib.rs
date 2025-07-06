@@ -255,7 +255,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_all_todos_with_invalid_token() {
         let client = TodoistClient::new("invalid_token".to_string(), None);
-        let result = client.get_all_todos(None).await;
+        let result = client.get_all_todos().await;
         assert!(result.is_err());
     }
 

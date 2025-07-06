@@ -4,7 +4,7 @@ use todoist::{TodoistClient, TodoistError};
 #[tokio::test]
 async fn test_client_creation() {
     let token = "test_token".to_string();
-    let _client = TodoistClient::new(token);
+    let _client = TodoistClient::new(token, None);
 
     // Test that the client is created successfully
     // We can't test actual API calls without a valid token
@@ -14,9 +14,9 @@ async fn test_client_creation() {
 
 #[tokio::test]
 async fn test_get_all_todos_with_invalid_token() {
-    let client = TodoistClient::new("invalid_token".to_string());
+    let client = TodoistClient::new("invalid_token".to_string(), None);
 
-    match client.get_all_todos(None).await {
+    match client.get_all_todos().await {
         Err(TodoistError::ApiError { status, .. }) => {
             // Should get a 401 Unauthorized or similar error
             assert!(status == 401 || status == 403);
@@ -48,10 +48,10 @@ async fn test_real_api_calls() {
         return;
     }
 
-    let client = TodoistClient::new(token);
+    let client = TodoistClient::new(token, None);
 
     // Test fetching all todos
-    match client.get_all_todos(None).await {
+    match client.get_all_todos().await {
         Ok(todos) => {
             println!("Successfully fetched {} todos", todos.len());
 
