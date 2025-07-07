@@ -1,4 +1,3 @@
-use chrono::Utc;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 
@@ -45,23 +44,6 @@ pub struct TodoDue {
     pub datetime: Option<String>,
     pub string: String,
     pub timezone: Option<String>,
-}
-
-/// Represents a Todoist project
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Project {
-    pub id: String,
-    pub name: String,
-    pub color: String,
-    pub parent_id: Option<String>,
-    pub order: u32,
-    pub comment_count: u32,
-    pub is_shared: bool,
-    pub is_favorite: bool,
-    pub is_inbox_project: bool,
-    pub is_team_inbox: bool,
-    pub view_style: String,
-    pub url: String,
 }
 
 /// Error types for Todoist operations
