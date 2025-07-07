@@ -165,74 +165,6 @@ impl TodoistClient {
         let response_data: TodosResponse = response.json().await?;
         Ok(response_data.results)
     }
-
-    /// Fetches all todos that were completed today
-    pub async fn get_todos_completed_today(&self) -> Result<Vec<Todo>, TodoistError> {
-        let now = Utc::now();
-        let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        let today_end = now.date_naive().and_hms_opt(23, 59, 59).unwrap();
-
-        let since = today_start.and_utc().to_rfc3339();
-        let until = today_end.and_utc().to_rfc3339();
-
-        self.get_todos_completed_by_date_range(&since, &until).await
-    }
-
-    /// Fetches all todos that were completed on a specific date
-    ///
-    /// # Arguments
-    /// * `date` - The date in YYYY-MM-DD format (e.g., "2023-12-25")
-    pub async fn get_todos_completed_on_date(&self, date: &str) -> Result<Vec<Todo>, TodoistError> {
-        // Parse the date and create start/end of day timestamps
-        let date_start = format!("{}T00:00:00Z", date);
-        let date_end = format!("{}T23:59:59Z", date);
-
-        self.get_todos_completed_by_date_range(&date_start, &date_end)
-            .await
-    }
-
-    /// Fetches todos completed within a specific date range
-    ///
-    /// # Arguments
-    /// * `since` - Start of date range in RFC3339 format
-    /// * `until` - End of date range in RFC3339 format
-    pub async fn get_todos_completed_by_date_range(
-        &self,
-        since: &str,
-        until: &str,
-    ) -> Result<Vec<Todo>, TodoistError> {
-        // Use the correct endpoint for completed tasks by completion date
-        let url = format!("{}/tasks/completed/by_completion_date", self.base_url);
-
-        let response = self
-            .client
-            .get(&url)
-            .query(&[
-                ("since", since),
-                ("until", until),
-                ("filter_query", self.query.as_ref().unwrap().as_str()),
-            ])
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(TodoistError::ApiError {
-                status: response.status().as_u16(),
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string()),
-            });
-        }
-
-        #[derive(serde::Deserialize)]
-        struct CompletedTasksResponse {
-            items: Vec<Todo>,
-        }
-
-        let response_data: CompletedTasksResponse = response.json().await?;
-        Ok(response_data.items)
-    }
 }
 
 // Helper function for creating a client - useful for testing
@@ -256,29 +188,6 @@ mod tests {
     async fn test_get_all_todos_with_invalid_token() {
         let client = TodoistClient::new("invalid_token".to_string(), None);
         let result = client.get_all_todos().await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_get_todos_completed_today_with_invalid_token() {
-        let client = TodoistClient::new("invalid_token".to_string(), None);
-        let result = client.get_todos_completed_today().await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_get_todos_completed_on_date_with_invalid_token() {
-        let client = TodoistClient::new("invalid_token".to_string(), None);
-        let result = client.get_todos_completed_on_date("2023-12-25").await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_get_todos_completed_by_date_range_with_invalid_token() {
-        let client = TodoistClient::new("invalid_token".to_string(), None);
-        let result = client
-            .get_todos_completed_by_date_range("2023-12-25T00:00:00Z", "2023-12-25T23:59:59Z")
-            .await;
         assert!(result.is_err());
     }
 
