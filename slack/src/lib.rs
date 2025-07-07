@@ -1,5 +1,5 @@
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::env;
 
 #[derive(Debug, Clone)]
@@ -8,17 +8,13 @@ pub struct SlackClient {
     token: String,
 }
 
-#[derive(Debug, Serialize)]
-struct SlackMessage {
-    text: String,
-    channel: String,
-}
-
 #[derive(Debug, Deserialize)]
 struct SlackApiResponse {
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ts: Option<String>,
 }
 
 #[derive(Debug)]
@@ -94,19 +90,100 @@ impl SlackClient {
     /// # Arguments
     /// * `message` - The message text to send
     /// * `channel` - Channel to send to (e.g., "#general", "@username", or channel ID)
-    /// * `username` - Optional username to display as
-    /// * `icon_emoji` - Optional emoji icon (e.g., ":robot_face:")
-    pub async fn post_message(&self, message: &str, channel: &str) -> Result<(), SlackError> {
-        let payload = SlackMessage {
-            text: message.to_string(),
-            channel: channel.to_string(),
-        };
-
+    ///
+    /// # Returns
+    /// * `Ok(String)` - The message timestamp (ts) if successful
+    /// * `Err(SlackError)` - Error if the request fails
+    pub async fn post_message(&self, message: &str, channel: &str) -> Result<String, SlackError> {
         let response = self
             .client
             .post("https://slack.com/api/chat.postMessage")
             .bearer_auth(&self.token)
-            .json(&payload)
+            .json(&serde_json::json!({
+                "channel":channel,
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text":
+                            {
+                                "type": "mrkdwn",
+                                "text": message
+                            },
+
+                    },
+                    {
+                      "type": "divider"
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "Your daily context is provided by <https://github.com/jvanbaarsen/slaist|Slaist>"
+                      }
+                    }
+                ]
+            }))
+            .send()
+            .await?;
+
+        let api_response: SlackApiResponse = response.json().await?;
+
+        if !api_response.ok {
+            let error_msg = api_response
+                .error
+                .unwrap_or_else(|| "Unknown error".to_string());
+            return Err(SlackError::ApiError(error_msg));
+        }
+
+        let ts = api_response.ts.unwrap_or_else(|| "unknown".to_string());
+        Ok(ts)
+    }
+
+    /// Update an existing message in Slack
+    ///
+    /// # Arguments
+    /// * `message` - The new message text
+    /// * `channel` - Channel where the message is located
+    /// * `ts` - The timestamp of the message to update
+    ///
+    /// # Returns
+    /// * `Ok(())` - If the update was successful
+    /// * `Err(SlackError)` - Error if the request fails
+    pub async fn update_message(
+        &self,
+        message: &str,
+        channel: &str,
+        ts: &str,
+    ) -> Result<(), SlackError> {
+        let response = self
+            .client
+            .post("https://slack.com/api/chat.update")
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({
+              "channel": channel,
+              "ts": ts,
+              "blocks": [
+                  {
+                      "type": "section",
+                      "text":
+                          {
+                              "type": "mrkdwn",
+                              "text": message
+                          },
+
+                  },
+                  {
+                    "type": "divider"
+                  },
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "Your daily context is provided by <https://github.com/jvanbaarsen/slaist|Slaist>"
+                    }
+                  }
+              ],
+            }))
             .send()
             .await?;
 

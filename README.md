@@ -98,6 +98,38 @@ This will:
 - Find today's todo markdown file in `~/slaist/`
 - Format it as a Slack message
 - Post it to your configured Slack channel
+- Track the message ID for future updates
+
+### Message ID Tracking
+
+The application automatically tracks Slack message IDs to enable updating existing messages instead of creating new ones each time. This ensures only one message per day is posted to Slack.
+
+**How it works:**
+- When a message is first posted to Slack, the message ID is stored in the markdown file as metadata
+- Subsequent posts for the same day will update the existing message instead of creating a new one
+- The message ID is stored as an HTML comment at the top of the file: `<!-- slack_message_id: 1234567890.123456 -->`
+- This metadata is automatically filtered out when posting to Slack, so it won't appear in your messages
+- The message ID is preserved even when the main application regenerates the markdown file with updated todos
+
+**Example markdown file with message ID:**
+```markdown
+<!-- slack_message_id: 1234567890.123456 -->
+## Active Todos
+
+- [ ] Complete the quarterly report
+- [ ] Review team performance metrics
+
+## Completed Todos
+
+- [x] Send weekly status update
+```
+
+**Benefits:**
+- Prevents spam in your Slack channel
+- Keeps all daily updates in a single message thread
+- Maintains clean chat history
+- Automatically handles message updates or fallback to new messages if updates fail
+- Message IDs are preserved even when todos are updated by the main application
 
 ## Example Usage
 

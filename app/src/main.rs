@@ -1,4 +1,5 @@
 use chrono::Utc;
+use slack::SlackClient;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -14,11 +15,11 @@ fn parse_existing_markdown(content: &str) -> Vec<(String, bool)> {
 
     for line in lines {
         let trimmed = line.trim();
-        if trimmed.starts_with("- [ ]") {
-            let todo_content = trimmed[5..].trim().to_string();
+        if trimmed.starts_with(":todo:") {
+            let todo_content = trimmed[6..].trim().to_string();
             todos.push((todo_content, false));
-        } else if trimmed.starts_with("- [x]") {
-            let mut todo_content = trimmed[5..].trim().to_string();
+        } else if trimmed.starts_with(":todo_done:") {
+            let mut todo_content = trimmed[11..].trim().to_string();
             // Remove the "*(marked as finished)*" suffix if present
             if todo_content.ends_with("*(marked as finished)*") {
                 todo_content = todo_content
@@ -33,8 +34,17 @@ fn parse_existing_markdown(content: &str) -> Vec<(String, bool)> {
 }
 
 /// Generate markdown content with comparison logic
-fn generate_markdown_content(current_todos: &[Todo], existing_todos: &[(String, bool)]) -> String {
+fn generate_markdown_content(
+    current_todos: &[Todo],
+    existing_todos: &[(String, bool)],
+    existing_message_id: Option<&str>,
+) -> String {
     let mut content = String::new();
+
+    // Preserve existing message ID if present
+    if let Some(message_id) = existing_message_id {
+        content.push_str(&format!("<!-- slack_message_id: {} -->\n", message_id));
+    }
 
     // Create a set of current todo contents for fast lookup
     let current_todo_contents: HashSet<String> = current_todos
@@ -43,19 +53,19 @@ fn generate_markdown_content(current_todos: &[Todo], existing_todos: &[(String, 
         .collect();
 
     // Active todos section
-    content.push_str("## Active Todos\n\n");
+    content.push_str("*Active Todos*\n\n");
 
     let active_todos: Vec<_> = current_todos.iter().filter(|todo| !todo.checked).collect();
     if active_todos.is_empty() {
-        content.push_str("*No active todos found! 🎉*\n\n");
+        content.push_str("_No active todos found! 🎉_\n\n");
     } else {
         for todo in active_todos {
-            content.push_str(&format!("- [ ] {}\n", todo.content));
+            content.push_str(&format!(":todo: {}\n", todo.content));
         }
     }
 
     // Completed todos section
-    content.push_str("\n## Completed Todos\n\n");
+    content.push_str("\n*Completed Todos*\n\n");
 
     let completed_todos: Vec<_> = current_todos.iter().filter(|todo| todo.checked).collect();
     let mut has_completed = false;
@@ -65,7 +75,7 @@ fn generate_markdown_content(current_todos: &[Todo], existing_todos: &[(String, 
 
     // Add currently completed todos
     for todo in completed_todos {
-        content.push_str(&format!("- [x] {}\n", todo.content));
+        content.push_str(&format!(":todo_done: {}\n", todo.content));
         added_completed.insert(todo.content.clone());
         has_completed = true;
     }
@@ -77,13 +87,13 @@ fn generate_markdown_content(current_todos: &[Todo], existing_todos: &[(String, 
 
         if *was_completed && !already_added {
             // Preserve previously completed todos (including those marked as finished)
-            content.push_str(&format!("- [x] {}\n", existing_content));
+            content.push_str(&format!(":todo_done: {}\n", existing_content));
             added_completed.insert(existing_content.clone());
             has_completed = true;
         } else if !*was_completed && !in_current && !already_added {
             // Mark new missing todos as finished
             content.push_str(&format!(
-                "- [x] {} *(marked as finished)*\n",
+                ":todo_done: {} *(marked as finished)*\n",
                 existing_content
             ));
             has_completed = true;
@@ -91,10 +101,65 @@ fn generate_markdown_content(current_todos: &[Todo], existing_todos: &[(String, 
     }
 
     if !has_completed {
-        content.push_str("*No completed todos yet.*\n\n");
+        content.push_str("_No completed todos yet._\n\n");
     }
 
     content
+}
+
+/// Extract Slack message ID from markdown content
+fn extract_slack_message_id(content: &str) -> Option<String> {
+    for line in content.lines() {
+        if line.starts_with("<!-- slack_message_id: ") && line.ends_with(" -->") {
+            let id = line
+                .trim_start_matches("<!-- slack_message_id: ")
+                .trim_end_matches(" -->")
+                .to_string();
+            return Some(id);
+        }
+    }
+    None
+}
+
+/// Add or update Slack message ID in markdown content
+fn add_slack_message_id(content: &str, message_id: &str) -> String {
+    let metadata_line = format!("<!-- slack_message_id: {} -->", message_id);
+
+    // Check if there's already a message ID
+    let mut lines: Vec<&str> = content.lines().collect();
+
+    // Find and replace existing message ID line
+    for (i, line) in lines.iter().enumerate() {
+        if line.starts_with("<!-- slack_message_id: ") && line.ends_with(" -->") {
+            lines[i] = &metadata_line;
+            return lines.join("\n");
+        }
+    }
+
+    // If no existing message ID found, add it at the beginning
+    format!("{}\n{}", metadata_line, content)
+}
+
+/// Filter out Slack message ID metadata from markdown content
+fn filter_slack_metadata(content: &str) -> String {
+    content
+        .lines()
+        .filter(|line| !line.starts_with("<!-- slack_message_id: ") || !line.ends_with(" -->"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Validate that a message ID looks like a valid Slack timestamp
+fn validate_message_id(message_id: &str) -> bool {
+    // Slack message timestamps are in the format "1234567890.123456"
+    // They should contain exactly one dot and be numeric
+    let parts: Vec<&str> = message_id.split('.').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+
+    // Check that both parts are numeric
+    parts[0].parse::<u64>().is_ok() && parts[1].parse::<u64>().is_ok()
 }
 
 #[tokio::main]
@@ -144,13 +209,17 @@ async fn main() -> Result<(), TodoistError> {
         println!("{:-<60}", "");
 
         // Read existing markdown file if it exists
-        let existing_todos = if file_path.exists() {
+        let (existing_todos, existing_message_id) = if file_path.exists() {
             match fs::read_to_string(&file_path) {
-                Ok(content) => parse_existing_markdown(&content),
-                Err(_) => Vec::new(),
+                Ok(content) => {
+                    let todos = parse_existing_markdown(&content);
+                    let message_id = extract_slack_message_id(&content);
+                    (todos, message_id)
+                }
+                Err(_) => (Vec::new(), None),
             }
         } else {
-            Vec::new()
+            (Vec::new(), None)
         };
 
         // Fetch all current todos (active and completed from recent days)
@@ -193,7 +262,11 @@ async fn main() -> Result<(), TodoistError> {
             .count();
 
         // Generate markdown content with comparison logic
-        let markdown_content = generate_markdown_content(&all_current_todos, &existing_todos);
+        let markdown_content = generate_markdown_content(
+            &all_current_todos,
+            &existing_todos,
+            existing_message_id.as_deref(),
+        );
 
         // Display summary
         let active_count = all_current_todos.iter().filter(|t| !t.checked).count();
@@ -230,6 +303,8 @@ async fn main() -> Result<(), TodoistError> {
             }
         }
 
+        let _ = post_slack().await;
+
         println!("\n{:-<60}", "");
         println!("⏳ Waiting 10 seconds until next refresh...");
         println!();
@@ -238,6 +313,227 @@ async fn main() -> Result<(), TodoistError> {
         sleep(Duration::from_secs(10)).await;
         iteration += 1;
     }
+}
+
+async fn post_slack() -> Result<(), Box<dyn std::error::Error>> {
+    println!("📤 Slack Post - Sending Today's Todos");
+    println!("=====================================");
+
+    // Get today's date
+    let now = Utc::now();
+    let date_str = now.format("%Y-%m-%d");
+
+    // Construct the path to today's markdown file
+    let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let slaist_dir = Path::new(&home_dir).join("slaist");
+    let filename = format!("{}.md", date_str);
+    let file_path = slaist_dir.join(&filename);
+
+    println!("📁 Looking for file: {}", file_path.display());
+
+    // Check if the file exists
+    if !file_path.exists() {
+        eprintln!("❌ Error: Todo file for today ({}) not found!", date_str);
+        eprintln!("   Expected location: {}", file_path.display());
+        eprintln!("   Run the main slaist application first to generate the file.");
+        return Ok(());
+    }
+
+    // Read the markdown content
+    let markdown_content = match fs::read_to_string(&file_path) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("❌ Error reading file {}: {}", file_path.display(), e);
+            return Ok(());
+        }
+    };
+
+    if markdown_content.trim().is_empty() {
+        eprintln!("⚠️  Warning: Todo file is empty!");
+        return Ok(());
+    }
+
+    println!(
+        "📋 Found todo content ({} characters)",
+        markdown_content.len()
+    );
+
+    // Extract existing Slack message ID if present
+    let existing_message_id = extract_slack_message_id(&markdown_content);
+
+    // Validate message ID if present
+    if let Some(ref msg_id) = existing_message_id {
+        if !validate_message_id(msg_id) {
+            eprintln!("⚠️  Warning: Invalid message ID format found: {}", msg_id);
+            eprintln!("   Expected format: 1234567890.123456");
+            eprintln!("   Will attempt to post as new message instead");
+        } else {
+            println!("📋 Found existing message ID: {}", msg_id);
+        }
+    }
+
+    // Create Slack client
+    let slack_client = match SlackClient::new() {
+        Ok(client) => client,
+        Err(e) => {
+            eprintln!("❌ Error creating Slack client: {}", e);
+            eprintln!("   Please set the SLACK_BOT_TOKEN environment variable:");
+            eprintln!("   export SLACK_BOT_TOKEN=\"xoxb-your-bot-token-here\"");
+            eprintln!("   ");
+            eprintln!("   To get a bot token:");
+            eprintln!("   1. Go to https://api.slack.com/apps");
+            eprintln!("   2. Create a new app or select an existing one");
+            eprintln!("   3. Go to 'OAuth & Permissions' and add 'chat:write' scope");
+            eprintln!("   4. Install the app to your workspace");
+            eprintln!("   5. Copy the 'Bot User OAuth Token'");
+            eprintln!("   ");
+            eprintln!("   Optional: Set SLACK_CHANNEL to specify the channel:");
+            eprintln!("   export SLACK_CHANNEL=\"#your-channel-name\"");
+            eprintln!("   (defaults to #general if not set)");
+            return Ok(());
+        }
+    };
+
+    // Filter out metadata from markdown content before sending to Slack
+    let filtered_markdown = filter_slack_metadata(&markdown_content);
+
+    // Prepare the message
+    let message = format!("📅 *Daily Todos - {}*\n\n{}", date_str, filtered_markdown);
+
+    // Get channel from environment or use default
+    let channel = env::var("SLACK_CHANNEL").unwrap_or_else(|_| "#general".to_string());
+
+    println!("📢 Posting to channel: {}", channel);
+
+    // Post or update message to Slack
+    match existing_message_id {
+        Some(message_id) if validate_message_id(&message_id) => {
+            // Update existing message
+            println!("🔄 Updating existing message...");
+            match slack_client
+                .update_message(&message, &channel, &message_id)
+                .await
+            {
+                Ok(_) => {
+                    println!("✅ Successfully updated today's todos on Slack!");
+                    println!("   Date: {}", date_str);
+                    println!("   Channel: {}", channel);
+                    println!("   Message ID: {}", message_id);
+                    println!("   Content length: {} characters", filtered_markdown.len());
+                }
+                Err(e) => {
+                    eprintln!("❌ Error updating Slack message: {}", e);
+                    eprintln!("   Message ID: {}", message_id);
+                    eprintln!("   Channel: {}", channel);
+
+                    // Provide specific error guidance
+                    match e {
+                        slack::SlackError::ApiError(ref msg) => {
+                            if msg.contains("cant_update_message") {
+                                eprintln!(
+                                    "   → This usually means the bot doesn't have permission to update this message"
+                                );
+                                eprintln!("   → Or the message was posted by a different bot/user");
+                            } else if msg.contains("message_not_found") {
+                                eprintln!("   → The message with this ID no longer exists");
+                            }
+                        }
+                        _ => {}
+                    }
+
+                    // Try to post as new message if update fails
+                    println!("🔄 Attempting to post as new message...");
+                    match slack_client.post_message(&message, &channel).await {
+                        Ok(new_message_id) => {
+                            println!("✅ Successfully posted new message to Slack!");
+                            println!("   New Message ID: {}", new_message_id);
+                            // Update the markdown file with new message ID
+                            let updated_content =
+                                add_slack_message_id(&markdown_content, &new_message_id);
+                            if let Err(e) = fs::write(&file_path, updated_content) {
+                                eprintln!(
+                                    "⚠️  Warning: Could not update file with new message ID: {}",
+                                    e
+                                );
+                            } else {
+                                println!("📝 Updated markdown file with new message ID");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("❌ Error posting new message to Slack: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+        Some(invalid_id) => {
+            eprintln!(
+                "⚠️  Skipping update due to invalid message ID: {}",
+                invalid_id
+            );
+            println!("🚀 Sending new message to Slack...");
+            match slack_client.post_message(&message, &channel).await {
+                Ok(message_id) => {
+                    println!("✅ Successfully posted today's todos to Slack!");
+                    println!("   Date: {}", date_str);
+                    println!("   Channel: {}", channel);
+                    println!("   Message ID: {}", message_id);
+                    println!("   Content length: {} characters", filtered_markdown.len());
+
+                    // Update the markdown file with the new valid message ID
+                    let updated_content = add_slack_message_id(&markdown_content, &message_id);
+                    if let Err(e) = fs::write(&file_path, updated_content) {
+                        eprintln!("⚠️  Warning: Could not update file with message ID: {}", e);
+                    } else {
+                        println!("📝 Updated markdown file with valid message ID");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ Error posting to Slack: {}", e);
+                }
+            }
+        }
+        None => {
+            // Post new message
+            println!("🚀 Sending new message to Slack...");
+            match slack_client.post_message(&message, &channel).await {
+                Ok(message_id) => {
+                    println!("✅ Successfully posted today's todos to Slack!");
+                    println!("   Date: {}", date_str);
+                    println!("   Channel: {}", channel);
+                    println!("   Message ID: {}", message_id);
+                    println!("   Content length: {} characters", filtered_markdown.len());
+
+                    // Update the markdown file with the message ID
+                    let updated_content = add_slack_message_id(&markdown_content, &message_id);
+                    if let Err(e) = fs::write(&file_path, updated_content) {
+                        eprintln!("⚠️  Warning: Could not update file with message ID: {}", e);
+                    } else {
+                        println!("📝 Updated markdown file with message ID for future updates");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ Error posting to Slack: {}", e);
+                    match e {
+                        slack::SlackError::HttpError(_) => {
+                            eprintln!("   This might be a network connectivity issue.");
+                        }
+                        slack::SlackError::ApiError(ref msg) => {
+                            eprintln!("   Slack API error: {}", msg);
+                            if msg.contains("invalid_auth") || msg.contains("not_authed") {
+                                eprintln!("   Check your Slack bot token.");
+                            }
+                        }
+                        slack::SlackError::ConfigError(_) => {
+                            eprintln!("   Check your SLACK_BOT_TOKEN environment variable.");
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -347,7 +643,7 @@ mod tests {
             ("Already completed task".to_string(), true),
         ];
 
-        let markdown = generate_markdown_content(&current_todos, &existing_todos);
+        let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
 
         assert!(markdown.contains("## Active Todos"));
         assert!(markdown.contains("- [ ] Active task"));
@@ -362,7 +658,7 @@ mod tests {
         let current_todos = vec![];
         let existing_todos = vec![];
 
-        let markdown = generate_markdown_content(&current_todos, &existing_todos);
+        let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
 
         assert!(markdown.contains("*No active todos found! 🎉*"));
         assert!(markdown.contains("*No completed todos yet.*"));
@@ -377,7 +673,7 @@ mod tests {
             ("Already completed".to_string(), true),
         ];
 
-        let markdown = generate_markdown_content(&current_todos, &existing_todos);
+        let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
 
         assert!(markdown.contains("- [x] Missing task 1 *(marked as finished)*"));
         assert!(markdown.contains("- [x] Missing task 2 *(marked as finished)*"));
@@ -418,7 +714,7 @@ mod tests {
             ("Task that disappeared".to_string(), false),   // No longer in API
         ];
 
-        let markdown = generate_markdown_content(&current_todos, &existing_todos);
+        let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
 
         // Should show the task as completed (from API)
         assert!(markdown.contains("- [x] Task that was completed"));
@@ -463,7 +759,7 @@ mod tests {
             ("Task that just disappeared".to_string(), false), // New missing task
         ];
 
-        let markdown = generate_markdown_content(&current_todos, &existing_todos);
+        let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
 
         // Should preserve previously finished todos
         assert!(markdown.contains("- [x] Old task marked as finished"));
@@ -534,7 +830,7 @@ mod tests {
         ];
 
         // First iteration: generate markdown from initial todos
-        let first_markdown = generate_markdown_content(&initial_todos, &[]);
+        let first_markdown = generate_markdown_content(&initial_todos, &[], None);
         assert!(first_markdown.contains("- [ ] Task A"));
         assert!(first_markdown.contains("- [ ] Task B"));
 
@@ -543,7 +839,7 @@ mod tests {
 
         // Second iteration: Task B disappears (maybe completed outside the filter)
         let second_todos = vec![initial_todos[0].clone()]; // Only Task A remains
-        let second_markdown = generate_markdown_content(&second_todos, &first_parsed);
+        let second_markdown = generate_markdown_content(&second_todos, &first_parsed, None);
 
         // Task B should be marked as finished
         assert!(second_markdown.contains("- [ ] Task A"));
@@ -579,7 +875,7 @@ mod tests {
             responsible_uid: None,
         }];
 
-        let third_markdown = generate_markdown_content(&third_todos, &second_parsed);
+        let third_markdown = generate_markdown_content(&third_todos, &second_parsed, None);
 
         // Should preserve Task B as finished from previous iteration (without suffix)
         // Should mark Task A as newly finished (with suffix)
@@ -593,5 +889,181 @@ mod tests {
         let completed_section = third_markdown.split("## Completed Todos").nth(1).unwrap();
         assert!(completed_section.contains("Task A"));
         assert!(completed_section.contains("Task B"));
+    }
+
+    #[test]
+    fn test_extract_slack_message_id() {
+        let content_with_id = r#"<!-- slack_message_id: 1234567890.123456 -->
+## Active Todos
+
+- [ ] Test task
+"#;
+        let extracted = extract_slack_message_id(content_with_id);
+        assert_eq!(extracted, Some("1234567890.123456".to_string()));
+
+        let content_without_id = r#"## Active Todos
+
+- [ ] Test task
+"#;
+        let extracted = extract_slack_message_id(content_without_id);
+        assert_eq!(extracted, None);
+    }
+
+    #[test]
+    fn test_add_slack_message_id() {
+        let content = r#"## Active Todos
+
+- [ ] Test task
+"#;
+        let result = add_slack_message_id(content, "1234567890.123456");
+        assert!(result.starts_with("<!-- slack_message_id: 1234567890.123456 -->"));
+        assert!(result.contains("## Active Todos"));
+    }
+
+    #[test]
+    fn test_update_slack_message_id() {
+        let content = r#"<!-- slack_message_id: old_id -->
+## Active Todos
+
+- [ ] Test task
+"#;
+        let result = add_slack_message_id(content, "new_id");
+        assert!(result.contains("<!-- slack_message_id: new_id -->"));
+        assert!(!result.contains("old_id"));
+    }
+
+    #[test]
+    fn test_filter_slack_metadata() {
+        let content = r#"<!-- slack_message_id: 1234567890.123456 -->
+## Active Todos
+
+- [ ] Test task
+
+## Completed Todos
+
+- [x] Done task
+"#;
+        let filtered = filter_slack_metadata(content);
+        assert!(!filtered.contains("slack_message_id"));
+        assert!(filtered.contains("## Active Todos"));
+        assert!(filtered.contains("- [ ] Test task"));
+        assert!(filtered.contains("## Completed Todos"));
+    }
+
+    #[test]
+    fn test_validate_message_id() {
+        // Valid message IDs
+        assert!(validate_message_id("1234567890.123456"));
+        assert!(validate_message_id("1609459200.000001"));
+        assert!(validate_message_id("0.0"));
+
+        // Invalid message IDs
+        assert!(!validate_message_id("invalid_id"));
+        assert!(!validate_message_id("1234567890"));
+        assert!(!validate_message_id("1234567890."));
+        assert!(!validate_message_id(".123456"));
+        assert!(!validate_message_id("1234567890.123456.789"));
+        assert!(!validate_message_id("abc.123456"));
+        assert!(!validate_message_id("1234567890.abc"));
+        assert!(!validate_message_id(""));
+    }
+
+    #[test]
+    fn test_generate_markdown_content_with_message_id() {
+        let markdown = generate_markdown_content(&[], &[], Some("1234567890.123456"));
+        assert!(markdown.starts_with("<!-- slack_message_id: 1234567890.123456 -->"));
+        assert!(markdown.contains("## Active Todos"));
+    }
+
+    #[test]
+    fn test_message_id_preservation_during_regeneration() {
+        // Create initial markdown with a message ID
+        let initial_content = r#"<!-- slack_message_id: 1234567890.123456 -->
+## Active Todos
+
+- [ ] Task A
+- [ ] Task B
+
+## Completed Todos
+
+- [x] Task C
+"#;
+
+        // Parse the existing content
+        let existing_todos = parse_existing_markdown(initial_content);
+        let message_id = extract_slack_message_id(initial_content);
+
+        // Simulate new todos from API
+        let new_todos = vec![
+            Todo {
+                id: "1".to_string(),
+                user_id: "123".to_string(),
+                project_id: "456".to_string(),
+                section_id: None,
+                parent_id: None,
+                content: "Task A".to_string(),
+                description: Some("".to_string()),
+                priority: 1,
+                labels: vec![],
+                due: None,
+                deadline: None,
+                duration: None,
+                checked: false,
+                is_deleted: false,
+                added_at: "2023-01-01T00:00:00Z".to_string(),
+                completed_at: None,
+                updated_at: "2023-01-01T00:00:00Z".to_string(),
+                child_order: 1,
+                day_order: None,
+                is_collapsed: None,
+                added_by_uid: None,
+                assigned_by_uid: None,
+                responsible_uid: None,
+            },
+            Todo {
+                id: "2".to_string(),
+                user_id: "123".to_string(),
+                project_id: "456".to_string(),
+                section_id: None,
+                parent_id: None,
+                content: "Task D".to_string(), // New task
+                description: Some("".to_string()),
+                priority: 1,
+                labels: vec![],
+                due: None,
+                deadline: None,
+                duration: None,
+                checked: false,
+                is_deleted: false,
+                added_at: "2023-01-01T00:00:00Z".to_string(),
+                completed_at: None,
+                updated_at: "2023-01-01T00:00:00Z".to_string(),
+                child_order: 2,
+                day_order: None,
+                is_collapsed: None,
+                added_by_uid: None,
+                assigned_by_uid: None,
+                responsible_uid: None,
+            },
+        ];
+
+        // Generate new markdown content
+        let regenerated_content =
+            generate_markdown_content(&new_todos, &existing_todos, message_id.as_deref());
+
+        // Verify the message ID is preserved
+        assert!(regenerated_content.starts_with("<!-- slack_message_id: 1234567890.123456 -->"));
+
+        // Verify the content structure is correct
+        assert!(regenerated_content.contains("## Active Todos"));
+        assert!(regenerated_content.contains("- [ ] Task A"));
+        assert!(regenerated_content.contains("- [ ] Task D"));
+        assert!(regenerated_content.contains("## Completed Todos"));
+        assert!(regenerated_content.contains("- [x] Task B *(marked as finished)*")); // Task B disappeared
+        assert!(regenerated_content.contains("- [x] Task C")); // Task C was already completed
+
+        // Verify we can extract the message ID from the regenerated content
+        let extracted_id = extract_slack_message_id(&regenerated_content);
+        assert_eq!(extracted_id, Some("1234567890.123456".to_string()));
     }
 }
