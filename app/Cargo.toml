@@ -4,7 +4,16 @@ version = "0.1.0"
 edition = "2024"
 default-run = "slaist"
 
+[[bin]]
+name = "slaist"
+path = "src/main.rs"
+
+[[bin]]
+name = "slack-post"
+path = "src/slack_post.rs"
+
 [dependencies]
 tokio = { workspace = true }
 todoist = { path = "../todoist" }
+slack = { path = "../slack" }
 chrono = { version = "0.4", features = ["serde"] }
