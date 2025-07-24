@@ -114,13 +114,13 @@ impl SlackClient {
                     {
                       "type": "divider"
                     },
-                    {
-                      "type": "section",
-                      "text": {
-                        "type": "mrkdwn",
-                        "text": "Your daily context is provided by <https://github.com/jvanbaarsen/slaist|Slaist>"
-                      }
-                    }
+                    // {
+                    //   "type": "section",
+                    //   "text": {
+                    //     "type": "mrkdwn",
+                    //     "text": "Your daily context is provided by <https://github.com/jvanbaarsen/slaist|Slaist>"
+                    //   }
+                    // }
                 ]
             }))
             .send()
@@ -175,13 +175,13 @@ impl SlackClient {
                   {
                     "type": "divider"
                   },
-                  {
-                    "type": "section",
-                    "text": {
-                      "type": "mrkdwn",
-                      "text": "Your daily context is provided by <https://github.com/jvanbaarsen/slaist|Slaist>"
-                    }
-                  }
+                  // {
+                  //   "type": "section",
+                  //   "text": {
+                  //     "type": "mrkdwn",
+                  //     "text": "Your daily context is provided by <https://github.com/jvanbaarsen/slaist|Slaist>"
+                  //   }
+                  // }
               ],
             }))
             .send()
