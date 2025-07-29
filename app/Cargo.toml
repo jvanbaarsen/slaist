@@ -13,3 +13,5 @@ tokio = { workspace = true }
 todoist = { path = "../todoist" }
 slack = { path = "../slack" }
 chrono = { version = "0.4", features = ["serde"] }
+serde = { workspace = true }
+toml = "0.8"
