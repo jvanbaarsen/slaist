@@ -107,7 +107,8 @@ impl SlackClient {
                         "text":
                             {
                                 "type": "mrkdwn",
-                                "text": message
+                                "text": message.replace("- [ ]", ":todo:")
+                                                                    .replace("- [x]", ":todo_done:")
                             },
 
                     },
@@ -168,7 +169,8 @@ impl SlackClient {
                       "text":
                           {
                               "type": "mrkdwn",
-                              "text": message
+                              "text": message.replace("- [ ]", ":todo:")
+                                                                  .replace("- [x]", ":todo_done:")
                           },
 
                   },

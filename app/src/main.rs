@@ -77,7 +77,23 @@ fn parse_existing_markdown(content: &str) -> Vec<(String, bool)> {
 
     for line in lines {
         let trimmed = line.trim();
-        if trimmed.starts_with(":todo:") {
+        // Handle standard markdown checkbox format
+        if trimmed.starts_with("- [ ]") {
+            let todo_content = trimmed[5..].trim().to_string();
+            todos.push((todo_content, false));
+        } else if trimmed.starts_with("- [x]") {
+            let mut todo_content = trimmed[5..].trim().to_string();
+            // Remove the "*(marked as finished)*" suffix if present
+            if todo_content.ends_with("*(marked as finished)*") {
+                todo_content = todo_content
+                    .trim_end_matches("*(marked as finished)*")
+                    .trim()
+                    .to_string();
+            }
+            todos.push((todo_content, true));
+        }
+        // Handle legacy emoji format for backward compatibility
+        else if trimmed.starts_with(":todo:") {
             let todo_content = trimmed[6..].trim().to_string();
             todos.push((todo_content, false));
         } else if trimmed.starts_with(":todo_done:") {
@@ -115,19 +131,19 @@ fn generate_markdown_content(
         .collect();
 
     // Active todos section
-    content.push_str("*Active Todos*\n\n");
+    content.push_str("## Active Todos\n\n");
 
     let active_todos: Vec<_> = current_todos.iter().filter(|todo| !todo.checked).collect();
     if active_todos.is_empty() {
         content.push_str("_No active todos found! 🎉_\n\n");
     } else {
         for todo in active_todos {
-            content.push_str(&format!(":todo: {}\n", todo.content));
+            content.push_str(&format!("- [ ] {}\n", todo.content));
         }
     }
 
     // Completed todos section
-    content.push_str("\n*Completed Todos*\n\n");
+    content.push_str("\n## Completed Todos\n\n");
 
     let completed_todos: Vec<_> = current_todos.iter().filter(|todo| todo.checked).collect();
     let mut has_completed = false;
@@ -137,7 +153,7 @@ fn generate_markdown_content(
 
     // Add currently completed todos
     for todo in completed_todos {
-        content.push_str(&format!(":todo_done: {}\n", todo.content));
+        content.push_str(&format!("- [x] {}\n", todo.content));
         added_completed.insert(todo.content.clone());
         has_completed = true;
     }
@@ -149,13 +165,13 @@ fn generate_markdown_content(
 
         if *was_completed && !already_added {
             // Preserve previously completed todos (including those marked as finished)
-            content.push_str(&format!(":todo_done: {}\n", existing_content));
+            content.push_str(&format!("- [x] {}\n", existing_content));
             added_completed.insert(existing_content.clone());
             has_completed = true;
         } else if !*was_completed && !in_current && !already_added {
             // Mark new missing todos as finished
             content.push_str(&format!(
-                ":todo_done: {} *(marked as finished)*\n",
+                "- [x] {} *(marked as finished)*\n",
                 existing_content
             ));
             has_completed = true;
@@ -721,8 +737,8 @@ mod tests {
 
         let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
 
-        assert!(markdown.contains("*No active todos found! 🎉*"));
-        assert!(markdown.contains("*No completed todos yet.*"));
+        assert!(markdown.contains("_No active todos found! 🎉_"));
+        assert!(markdown.contains("_No completed todos yet._"));
     }
 
     #[test]
