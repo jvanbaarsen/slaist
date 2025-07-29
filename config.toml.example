@@ -1,0 +1,17 @@
+# Slaist Configuration File
+# Copy this file to ~/slaist/config.toml and update with your actual tokens
+
+# Required: Your Todoist API token
+# Get this from: https://todoist.com/prefs/integrations
+todoist_api_token = "your_todoist_api_token_here"
+
+# Required: Your Slack Bot Token
+# Get this from your Slack app's OAuth & Permissions page
+# Should start with "xoxb-"
+slack_bot_token = "xoxb-your-slack-bot-token-here"
+
+# Optional: Slack channel to post to (defaults to "#general")
+slack_channel = "#general"
+
+# Optional: Todoist filter to use (defaults to work tasks due today or overdue)
+filter = "(overdue | today) & #Work"

@@ -1,4 +1,5 @@
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use slack::SlackClient;
 use std::collections::HashSet;
 use std::env;
@@ -7,6 +8,67 @@ use std::io::Write;
 use std::path::Path;
 use todoist::{Todo, TodoistClient, TodoistError};
 use tokio::time::{Duration, sleep};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Config {
+    todoist_api_token: String,
+    slack_bot_token: String,
+    slack_channel: Option<String>,
+    filter: Option<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            todoist_api_token: String::new(),
+            slack_bot_token: String::new(),
+            slack_channel: Some("#general".to_string()),
+            filter: Some("(overdue | today) & #Work".to_string()),
+        }
+    }
+}
+
+impl Config {
+    fn load() -> Result<Self, Box<dyn std::error::Error>> {
+        let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let config_path = Path::new(&home_dir).join("slaist").join("config.toml");
+
+        if !config_path.exists() {
+            // Create default config file
+            let default_config = Self::default();
+            let slaist_dir = Path::new(&home_dir).join("slaist");
+            fs::create_dir_all(&slaist_dir)?;
+
+            let toml_content = toml::to_string_pretty(&default_config)?;
+            fs::write(&config_path, toml_content)?;
+
+            println!(
+                "📝 Created default config file at: {}",
+                config_path.display()
+            );
+            println!("⚠️  Please edit the config file and add your API tokens:");
+            println!("   - todoist_api_token: Get from https://todoist.com/prefs/integrations");
+            println!("   - slack_bot_token: Get from your Slack app settings");
+
+            return Err(
+                "Config file created with default values. Please update with your tokens.".into(),
+            );
+        }
+
+        let config_content = fs::read_to_string(&config_path)?;
+        let config: Config = toml::from_str(&config_content)?;
+
+        // Validate required fields
+        if config.todoist_api_token.is_empty() {
+            return Err("todoist_api_token is required in config.toml".into());
+        }
+        if config.slack_bot_token.is_empty() {
+            return Err("slack_bot_token is required in config.toml".into());
+        }
+
+        Ok(config)
+    }
+}
 
 /// Parse existing markdown file to extract todo items
 fn parse_existing_markdown(content: &str) -> Vec<(String, bool)> {
@@ -167,20 +229,17 @@ async fn main() -> Result<(), TodoistError> {
     println!("🚀 Todoist Client - Continuous Refresh");
     println!("=======================================");
 
-    // Try to get API token from environment
-    let token = match env::var("TODOIST_API_TOKEN") {
-        Ok(token) if !token.is_empty() && token != "your_api_token_here" => token,
-        _ => {
-            println!("⚠️  TODOIST_API_TOKEN environment variable not set or invalid");
-            println!("   Please set your Todoist API token:");
-            println!("   export TODOIST_API_TOKEN=\"your_actual_token_here\"");
-            println!("   Get your token from: https://todoist.com/prefs/integrations");
+    // Load configuration from TOML file
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(e) => {
+            println!("❌ Failed to load configuration: {}", e);
             return Ok(());
         }
     };
 
     // Create Todoist client
-    let client = TodoistClient::new(token, Some("(overdue | today) & #Work".to_string()));
+    let client = TodoistClient::new(config.todoist_api_token.clone(), config.filter.clone());
 
     println!("📱 Fetching todos every 10 seconds... (Press Ctrl+C to stop)");
     println!();
@@ -303,7 +362,7 @@ async fn main() -> Result<(), TodoistError> {
             }
         }
 
-        let _ = post_slack().await;
+        let _ = post_slack(&config).await;
 
         println!("\n{:-<60}", "");
         println!("⏳ Waiting 10 seconds until next refresh...");
@@ -315,7 +374,7 @@ async fn main() -> Result<(), TodoistError> {
     }
 }
 
-async fn post_slack() -> Result<(), Box<dyn std::error::Error>> {
+async fn post_slack(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     println!("📤 Slack Post - Sending Today's Todos");
     println!("=====================================");
 
@@ -373,23 +432,25 @@ async fn post_slack() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Create Slack client
-    let slack_client = match SlackClient::new() {
+    let slack_client = match SlackClient::with_bot_token(config.slack_bot_token.clone()) {
         Ok(client) => client,
         Err(e) => {
             eprintln!("❌ Error creating Slack client: {}", e);
-            eprintln!("   Please set the SLACK_BOT_TOKEN environment variable:");
-            eprintln!("   export SLACK_BOT_TOKEN=\"xoxb-your-bot-token-here\"");
+            eprintln!("   Please check your config file at ~/slaist/config.toml");
+            eprintln!("   Make sure slack_bot_token is set correctly.");
             eprintln!("   ");
             eprintln!("   To get a bot token:");
             eprintln!("   1. Go to https://api.slack.com/apps");
             eprintln!("   2. Create a new app or select an existing one");
             eprintln!("   3. Go to 'OAuth & Permissions' and add 'chat:write' scope");
             eprintln!("   4. Install the app to your workspace");
-            eprintln!("   5. Copy the 'Bot User OAuth Token'");
+            eprintln!("   5. Copy the 'Bot User OAuth Token' to your config file");
             eprintln!("   ");
-            eprintln!("   Optional: Set SLACK_CHANNEL to specify the channel:");
-            eprintln!("   export SLACK_CHANNEL=\"#your-channel-name\"");
-            eprintln!("   (defaults to #general if not set)");
+            eprintln!("   Example config.toml:");
+            eprintln!("   slack_bot_token = \"xoxb-your-bot-token-here\"");
+            eprintln!(
+                "   slack_channel = \"#your-channel-name\"  # optional, defaults to #general"
+            );
             return Ok(());
         }
     };
@@ -400,8 +461,8 @@ async fn post_slack() -> Result<(), Box<dyn std::error::Error>> {
     // Prepare the message
     let message = format!("📅 *Daily Todos - {}*\n\n{}", date_str, filtered_markdown);
 
-    // Get channel from environment or use default
-    let channel = env::var("SLACK_CHANNEL").unwrap_or_else(|_| "#general".to_string());
+    // Get channel from config or use default
+    let channel = config.slack_channel.as_deref().unwrap_or("#general");
 
     println!("📢 Posting to channel: {}", channel);
 
@@ -525,7 +586,7 @@ async fn post_slack() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         slack::SlackError::ConfigError(_) => {
-                            eprintln!("   Check your SLACK_BOT_TOKEN environment variable.");
+                            eprintln!("   Check your slack_bot_token in ~/slaist/config.toml");
                         }
                         _ => {}
                     }

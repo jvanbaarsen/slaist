@@ -17,17 +17,16 @@ A Rust application that continuously fetches Todoist todo's and posts them to a 
    cargo build --release
    ```
 
-2. **Set your API token**:
+2. **Configure the application**:
    ```bash
-   export TODOIST_API_TOKEN="your_api_token_here"
+   # Run once to create the config file
+   cargo run --package slaist
+   
+   # Edit the generated config file
+   nano ~/slaist/config.toml
    ```
 
-3. **Set up Slack integration** (optional):
-   ```bash
-   export SLACK_BOT_TOKEN="xoxb-your-bot-token-here"
-   ```
-
-4. **Run the continuous refresh**:
+3. **Run the continuous refresh**:
    ```bash
    cargo run --package slaist
    ```
@@ -37,17 +36,17 @@ A Rust application that continuously fetches Todoist todo's and posts them to a 
    ./demo.sh
    ```
 
-5. **Post today's todos to Slack**:
+4. **Post today's todos to Slack**:
    ```bash
    ./post-to-slack.sh
    ```
 
    Or run directly:
    ```bash
-   cargo run --bin slack-post
+   cargo run --package slaist
    ```
 
-6. **Check your setup**:
+5. **Check your setup**:
    ```bash
    ./check-setup.sh
    ```
@@ -67,24 +66,59 @@ Example file: `~/slaist/2023-12-08.md`
 
 ## Configuration
 
-The application uses environment variables for configuration:
+The application uses a TOML configuration file located at `~/slaist/config.toml`.
 
-- `TODOIST_API_TOKEN`: Your Todoist API token (required)
-- `SLACK_BOT_TOKEN`: Slack bot token for posting messages (optional)
-- `SLACK_CHANNEL`: Slack channel to post to (optional, defaults to #general)
+### First Run Setup
+
+When you run the application for the first time, it will automatically create a default configuration file:
+
+```toml
+todoist_api_token = ""
+slack_bot_token = ""
+slack_channel = "#general"
+filter = "(overdue | today) & #Work"
+```
+
+### Configuration Options
+
+- `todoist_api_token`: Your Todoist API token (required)
+  - Get from: https://todoist.com/prefs/integrations
+- `slack_bot_token`: Slack bot token for posting messages (required for Slack features)
+  - Get from your Slack app's OAuth & Permissions page
+- `slack_channel`: Slack channel to post to (optional, defaults to "#general")
+- `filter`: Todoist filter query (optional, defaults to work tasks due today or overdue)
+
+### Example Configuration
+
+```toml
+# Your Todoist API token
+todoist_api_token = "abc123def456..."
+
+# Your Slack Bot Token (starts with xoxb-)
+slack_bot_token = "xoxb-1234567890-abcdef..."
+
+# Channel to post daily todos (optional)
+slack_channel = "#daily-todos"
+
+# Custom filter for todos (optional)
+filter = "(today | overdue) & (@work | @personal)"
+```
 
 ## Slack Integration
 
-The application supports posting your daily todos to Slack using a bot token.
+The application supports posting your daily todos to Slack using a bot token configured in `~/slaist/config.toml`.
 
 ### Setting up Slack Bot Token
 
 1. Create a Slack app at [api.slack.com](https://api.slack.com/apps)
-3. Go to "OAuth & Permissions" and add the `chat:write` scope
-4. Install the app to your workspace
-5. Copy the Bot User OAuth Token
-6. Set the environment variable: `export SLACK_BOT_TOKEN="your_bot_token"`
-7. Optionally set the channel: `export SLACK_CHANNEL="#your-channel-name"`
+2. Go to "OAuth & Permissions" and add the `chat:write` scope
+3. Install the app to your workspace
+4. Copy the Bot User OAuth Token
+5. Add it to your config file:
+   ```toml
+   slack_bot_token = "xoxb-your-bot-token-here"
+   slack_channel = "#your-channel-name"  # optional
+   ```
 
 ### Posting to Slack
 
@@ -135,17 +169,23 @@ The application automatically tracks Slack message IDs to enable updating existi
 
 ### Basic Workflow
 
-1. **Start the continuous todo monitoring**:
+1. **Configure your tokens** (first time only):
    ```bash
-   export TODOIST_API_TOKEN="your_token_here"
+   # Run once to create the config file
+   cargo run --package slaist
+   
+   # Edit the config with your actual tokens
+   nano ~/slaist/config.toml
+   ```
+
+2. **Start the continuous todo monitoring**:
+   ```bash
    cargo run --package slaist
    ```
    This creates/updates `~/slaist/YYYY-MM-DD.md` files every 10 seconds.
 
-2. **Post today's todos to Slack**:
+3. **Post today's todos to Slack**:
    ```bash
-   export SLACK_BOT_TOKEN="xoxb-your-bot-token-here"
-   export SLACK_CHANNEL="#your-channel-name"  # Optional, defaults to #general
    ./post-to-slack.sh
    ```
 
@@ -203,7 +243,7 @@ Use the health check script to verify your setup:
 This will check:
 - Rust installation
 - Project build status
-- Environment variables (API tokens)
+- Configuration file and tokens
 - Directory structure
 - Script permissions
 - Existing todo files
