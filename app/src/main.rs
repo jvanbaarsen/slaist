@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use todoist::{Todo, TodoistClient, TodoistError};
 use tokio::time::{Duration, sleep};
 
@@ -15,15 +15,23 @@ struct Config {
     slack_bot_token: String,
     slack_channel: Option<String>,
     filter: Option<String>,
+    todos_directory: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
+        let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let default_todos_dir = Path::new(&home_dir)
+            .join("slaist")
+            .to_string_lossy()
+            .to_string();
+
         Self {
             todoist_api_token: String::new(),
             slack_bot_token: String::new(),
             slack_channel: Some("#general".to_string()),
             filter: Some("(overdue | today) & #Work".to_string()),
+            todos_directory: Some(default_todos_dir),
         }
     }
 }
@@ -67,6 +75,31 @@ impl Config {
         }
 
         Ok(config)
+    }
+}
+
+fn expand_tilde_path(path: &str) -> PathBuf {
+    if path.starts_with('~') {
+        let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        if path == "~" {
+            PathBuf::from(home_dir)
+        } else if path.starts_with("~/") {
+            Path::new(&home_dir).join(&path[2..])
+        } else {
+            PathBuf::from(path)
+        }
+    } else {
+        PathBuf::from(path)
+    }
+}
+
+fn get_todos_directory(config: &Config) -> PathBuf {
+    match &config.todos_directory {
+        Some(dir) => expand_tilde_path(dir),
+        None => {
+            let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            Path::new(&home_dir).join("slaist")
+        }
     }
 }
 
@@ -262,9 +295,8 @@ async fn main() -> Result<(), TodoistError> {
 
     let mut iteration = 1;
 
-    // Create the ~/slaist directory if it doesn't exist
-    let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let slaist_dir = Path::new(&home_dir).join("slaist");
+    // Create the todos directory if it doesn't exist
+    let slaist_dir = get_todos_directory(&config);
     if let Err(e) = fs::create_dir_all(&slaist_dir) {
         eprintln!(
             "⚠️  Warning: Could not create directory {}: {}",
@@ -399,11 +431,9 @@ async fn post_slack(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let date_str = now.format("%Y-%m-%d");
 
     // Construct the path to today's markdown file
-    let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let slaist_dir = Path::new(&home_dir).join("slaist");
+    let slaist_dir = get_todos_directory(config);
     let filename = format!("{}.md", date_str);
     let file_path = slaist_dir.join(&filename);
-
     println!("📁 Looking for file: {}", file_path.display());
 
     // Check if the file exists
@@ -610,6 +640,7 @@ async fn post_slack(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
     Ok(())
 }
 
@@ -1142,5 +1173,66 @@ mod tests {
         // Verify we can extract the message ID from the regenerated content
         let extracted_id = extract_slack_message_id(&regenerated_content);
         assert_eq!(extracted_id, Some("1234567890.123456".to_string()));
+    }
+
+    #[test]
+    fn test_expand_tilde_path_with_tilde_only() {
+        let result = expand_tilde_path("~");
+        let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        assert_eq!(result, PathBuf::from(home_dir));
+    }
+
+    #[test]
+    fn test_expand_tilde_path_with_tilde_slash() {
+        let result = expand_tilde_path("~/documents/todos");
+        let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let expected = Path::new(&home_dir).join("documents/todos");
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_expand_tilde_path_without_tilde() {
+        let path = "/absolute/path/to/todos";
+        let result = expand_tilde_path(path);
+        assert_eq!(result, PathBuf::from(path));
+    }
+
+    #[test]
+    fn test_expand_tilde_path_relative() {
+        let path = "relative/path/to/todos";
+        let result = expand_tilde_path(path);
+        assert_eq!(result, PathBuf::from(path));
+    }
+
+    #[test]
+    fn test_get_todos_directory_with_config() {
+        let config = Config {
+            todoist_api_token: "test".to_string(),
+            slack_bot_token: "test".to_string(),
+            slack_channel: None,
+            filter: None,
+            todos_directory: Some("~/custom/todos".to_string()),
+        };
+
+        let result = get_todos_directory(&config);
+        let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let expected = Path::new(&home_dir).join("custom/todos");
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_get_todos_directory_without_config() {
+        let config = Config {
+            todoist_api_token: "test".to_string(),
+            slack_bot_token: "test".to_string(),
+            slack_channel: None,
+            filter: None,
+            todos_directory: None,
+        };
+
+        let result = get_todos_directory(&config);
+        let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let expected = Path::new(&home_dir).join("slaist");
+        assert_eq!(result, expected);
     }
 }

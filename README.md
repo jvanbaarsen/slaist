@@ -1,6 +1,6 @@
 # Slaist - Todoist To Slack sync
 
-A Rust application that continuously fetches Todoist todo's and posts them to a Slack channel. It can both continuously monitor your todos and post daily summaries to Slack.
+A Rust application that continuously fetches Todoist todos and posts them to a Slack channel. It can both continuously monitor your todos and post daily summaries to Slack.
 
 ## Prerequisites
 
@@ -21,7 +21,7 @@ A Rust application that continuously fetches Todoist todo's and posts them to a 
    ```bash
    # Run once to create the config file
    cargo run --package slaist
-   
+
    # Edit the generated config file
    nano ~/slaist/config.toml
    ```
@@ -53,7 +53,7 @@ A Rust application that continuously fetches Todoist todo's and posts them to a 
 
 ## File Output
 
-Each refresh creates/updates a markdown file in `~/slaist/[date].md` with:
+Each refresh creates/updates a markdown file in your configured todos directory (defaults to `~/slaist/[date].md`) with:
 
 - **Structured markdown**: Proper headers and formatting
 - **GitHub-style checkboxes**: `- [ ]` for incomplete, `- [x]` for completed todos
@@ -62,7 +62,7 @@ Each refresh creates/updates a markdown file in `~/slaist/[date].md` with:
 - **High priority section**: Separate listing of urgent tasks
 - **Timestamp**: When the data was last updated
 
-Example file: `~/slaist/2023-12-08.md`
+Example file: `~/slaist/2023-12-08.md` (or your configured directory)
 
 ## Configuration
 
@@ -87,6 +87,9 @@ filter = "(overdue | today) & #Work"
   - Get from your Slack app's OAuth & Permissions page
 - `slack_channel`: Slack channel to post to (optional, defaults to "#general")
 - `filter`: Todoist filter query (optional, defaults to work tasks due today or overdue)
+- `todos_directory`: Directory where todo files are stored (optional, defaults to "~/slaist")
+  - Supports tilde (~) expansion for home directory
+  - Can be absolute path like "/path/to/todos" or relative path
 
 ### Example Configuration
 
@@ -102,6 +105,9 @@ slack_channel = "#daily-todos"
 
 # Custom filter for todos (optional)
 filter = "(today | overdue) & (@work | @personal)"
+
+# Custom directory for todo files (optional)
+todos_directory = "~/my-todos"
 ```
 
 ## Slack Integration
@@ -129,7 +135,7 @@ Once configured, you can post today's todos to Slack using:
 ```
 
 This will:
-- Find today's todo markdown file in `~/slaist/`
+- Find today's todo markdown file in your configured todos directory
 - Format it as a Slack message
 - Post it to your configured Slack channel
 - Track the message ID for future updates
@@ -173,7 +179,7 @@ The application automatically tracks Slack message IDs to enable updating existi
    ```bash
    # Run once to create the config file
    cargo run --package slaist
-   
+
    # Edit the config with your actual tokens
    nano ~/slaist/config.toml
    ```
@@ -182,7 +188,7 @@ The application automatically tracks Slack message IDs to enable updating existi
    ```bash
    cargo run --package slaist
    ```
-   This creates/updates `~/slaist/YYYY-MM-DD.md` files every 10 seconds.
+   This creates/updates `YYYY-MM-DD.md` files in your configured todos directory every 10 seconds.
 
 3. **Post today's todos to Slack**:
    ```bash

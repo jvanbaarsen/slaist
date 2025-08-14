@@ -15,3 +15,8 @@ slack_channel = "#general"
 
 # Optional: Todoist filter to use (defaults to work tasks due today or overdue)
 filter = "(overdue | today) & #Work"
+
+# Optional: Directory where todo files are stored (defaults to ~/slaist)
+# You can use an absolute path like "/path/to/todos" or relative path
+# The tilde (~) will be expanded to your home directory
+todos_directory = "~/slaist"
