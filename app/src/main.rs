@@ -104,12 +104,28 @@ fn get_todos_directory(config: &Config) -> PathBuf {
 }
 
 /// Parse existing markdown file to extract todo items
-fn parse_existing_markdown(content: &str) -> Vec<(String, bool)> {
+fn parse_existing_markdown(content: &str) -> (Vec<(String, bool)>, Option<String>) {
     let mut todos = Vec::new();
     let lines: Vec<&str> = content.lines().collect();
+    let mut notes_section: Option<String> = None;
+    let mut in_notes = false;
+    let mut notes_lines = Vec::new();
 
     for line in lines {
         let trimmed = line.trim();
+
+        // Check for notes delimiter
+        if trimmed == "---" {
+            in_notes = true;
+            continue;
+        }
+
+        // If we're in the notes section, collect all lines
+        if in_notes {
+            notes_lines.push(line.to_string());
+            continue;
+        }
+
         // Handle standard markdown checkbox format
         if trimmed.starts_with("- [ ]") {
             let todo_content = trimmed[5..].trim().to_string();
@@ -141,7 +157,13 @@ fn parse_existing_markdown(content: &str) -> Vec<(String, bool)> {
             todos.push((todo_content, true));
         }
     }
-    todos
+
+    // If we collected notes, join them back together
+    if !notes_lines.is_empty() {
+        notes_section = Some(notes_lines.join("\n"));
+    }
+
+    (todos, notes_section)
 }
 
 /// Generate markdown content with comparison logic
@@ -149,6 +171,7 @@ fn generate_markdown_content(
     current_todos: &[Todo],
     existing_todos: &[(String, bool)],
     existing_message_id: Option<&str>,
+    preserved_notes: Option<&str>,
 ) -> String {
     let mut content = String::new();
 
@@ -213,6 +236,16 @@ fn generate_markdown_content(
 
     if !has_completed {
         content.push_str("_No completed todos yet._\n\n");
+    }
+
+    // Add preserved notes section if it exists
+    if let Some(notes) = preserved_notes {
+        content.push_str("---\n");
+        content.push_str(notes);
+        // Ensure we end with a newline
+        if !notes.ends_with('\n') {
+            content.push('\n');
+        }
     }
 
     content
@@ -316,17 +349,17 @@ async fn main() -> Result<(), TodoistError> {
         println!("{:-<60}", "");
 
         // Read existing markdown file if it exists
-        let (existing_todos, existing_message_id) = if file_path.exists() {
+        let (existing_todos, existing_message_id, preserved_notes) = if file_path.exists() {
             match fs::read_to_string(&file_path) {
                 Ok(content) => {
-                    let todos = parse_existing_markdown(&content);
+                    let (todos, notes) = parse_existing_markdown(&content);
                     let message_id = extract_slack_message_id(&content);
-                    (todos, message_id)
+                    (todos, message_id, notes)
                 }
-                Err(_) => (Vec::new(), None),
+                Err(_) => (Vec::new(), None, None),
             }
         } else {
-            (Vec::new(), None)
+            (Vec::new(), None, None)
         };
 
         // Fetch all current todos (active and completed from recent days)
@@ -373,6 +406,7 @@ async fn main() -> Result<(), TodoistError> {
             &all_current_todos,
             &existing_todos,
             existing_message_id.as_deref(),
+            preserved_notes.as_deref(),
         );
 
         // Display summary
@@ -665,29 +699,31 @@ mod tests {
 *No completed todos yet.*
 "#;
 
-        let todos = parse_existing_markdown(markdown);
-        assert_eq!(todos.len(), 5);
+        let (todos, notes) = parse_existing_markdown(markdown);
 
+        assert_eq!(todos.len(), 5);
         assert_eq!(todos[0], ("Write tests".to_string(), false));
         assert_eq!(todos[1], ("Fix bug in parser".to_string(), false));
         assert_eq!(todos[2], ("Review code".to_string(), true));
         assert_eq!(todos[3], ("Update documentation".to_string(), true));
         assert_eq!(todos[4], ("Deploy to production".to_string(), true));
+        assert_eq!(notes, None);
     }
 
     #[test]
     fn test_parse_empty_markdown() {
         let markdown = r#"## Active Todos
 
-*No active todos found! 🎉*
+_No active todos found! 🎉_
 
 ## Completed Todos
 
-*No completed todos yet.*
+_No completed todos yet._
 "#;
 
-        let todos = parse_existing_markdown(markdown);
+        let (todos, notes) = parse_existing_markdown(markdown);
         assert_eq!(todos.len(), 0);
+        assert_eq!(notes, None);
     }
 
     #[test]
@@ -751,7 +787,7 @@ mod tests {
             ("Already completed task".to_string(), true),
         ];
 
-        let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
+        let markdown = generate_markdown_content(&current_todos, &existing_todos, None, None);
 
         assert!(markdown.contains("## Active Todos"));
         assert!(markdown.contains("- [ ] Active task"));
@@ -765,8 +801,7 @@ mod tests {
     fn test_generate_markdown_content_no_todos() {
         let current_todos = vec![];
         let existing_todos = vec![];
-
-        let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
+        let markdown = generate_markdown_content(&current_todos, &existing_todos, None, None);
 
         assert!(markdown.contains("_No active todos found! 🎉_"));
         assert!(markdown.contains("_No completed todos yet._"));
@@ -781,7 +816,7 @@ mod tests {
             ("Already completed".to_string(), true),
         ];
 
-        let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
+        let markdown = generate_markdown_content(&current_todos, &existing_todos, None, None);
 
         assert!(markdown.contains("- [x] Missing task 1 *(marked as finished)*"));
         assert!(markdown.contains("- [x] Missing task 2 *(marked as finished)*"));
@@ -822,7 +857,7 @@ mod tests {
             ("Task that disappeared".to_string(), false),   // No longer in API
         ];
 
-        let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
+        let markdown = generate_markdown_content(&current_todos, &existing_todos, None, None);
 
         // Should show the task as completed (from API)
         assert!(markdown.contains("- [x] Task that was completed"));
@@ -867,7 +902,7 @@ mod tests {
             ("Task that just disappeared".to_string(), false), // New missing task
         ];
 
-        let markdown = generate_markdown_content(&current_todos, &existing_todos, None);
+        let markdown = generate_markdown_content(&current_todos, &existing_todos, None, None);
 
         // Should preserve previously finished todos
         assert!(markdown.contains("- [x] Old task marked as finished"));
@@ -938,23 +973,23 @@ mod tests {
         ];
 
         // First iteration: generate markdown from initial todos
-        let first_markdown = generate_markdown_content(&initial_todos, &[], None);
+        let first_markdown = generate_markdown_content(&initial_todos, &[], None, None);
         assert!(first_markdown.contains("- [ ] Task A"));
         assert!(first_markdown.contains("- [ ] Task B"));
 
         // Parse the first markdown as if it were saved to file
-        let first_parsed = parse_existing_markdown(&first_markdown);
+        let (first_parsed, _) = parse_existing_markdown(&first_markdown);
 
         // Second iteration: Task B disappears (maybe completed outside the filter)
         let second_todos = vec![initial_todos[0].clone()]; // Only Task A remains
-        let second_markdown = generate_markdown_content(&second_todos, &first_parsed, None);
+        let second_markdown = generate_markdown_content(&second_todos, &first_parsed, None, None);
 
         // Task B should be marked as finished
         assert!(second_markdown.contains("- [ ] Task A"));
         assert!(second_markdown.contains("- [x] Task B *(marked as finished)*"));
 
         // Parse the second markdown
-        let second_parsed = parse_existing_markdown(&second_markdown);
+        let (second_parsed, _) = parse_existing_markdown(&second_markdown);
 
         // Third iteration: Task A also disappears, new Task C appears
         let third_todos = vec![Todo {
@@ -983,15 +1018,15 @@ mod tests {
             responsible_uid: None,
         }];
 
-        let third_markdown = generate_markdown_content(&third_todos, &second_parsed, None);
+        let third_markdown = generate_markdown_content(&third_todos, &second_parsed, None, None);
 
         // Should preserve Task B as finished from previous iteration (without suffix)
         // Should mark Task A as newly finished (with suffix)
         // Should show Task C as active
         assert!(third_markdown.contains("- [ ] Task C"));
-        assert!(third_markdown.contains("- [x] Task A *(marked as finished)*"));
         assert!(third_markdown.contains("- [x] Task B"));
         assert!(!third_markdown.contains("- [x] Task B *(marked as finished)*"));
+        assert!(third_markdown.contains("- [x] Task A *(marked as finished)*"));
 
         // Verify both tasks are preserved in completed section
         let completed_section = third_markdown.split("## Completed Todos").nth(1).unwrap();
@@ -1078,7 +1113,7 @@ mod tests {
 
     #[test]
     fn test_generate_markdown_content_with_message_id() {
-        let markdown = generate_markdown_content(&[], &[], Some("1234567890.123456"));
+        let markdown = generate_markdown_content(&[], &[], Some("1234567890.123456"), None);
         assert!(markdown.starts_with("<!-- slack_message_id: 1234567890.123456 -->"));
         assert!(markdown.contains("## Active Todos"));
     }
@@ -1098,7 +1133,7 @@ mod tests {
 "#;
 
         // Parse the existing content
-        let existing_todos = parse_existing_markdown(initial_content);
+        let (existing_todos, _) = parse_existing_markdown(initial_content);
         let message_id = extract_slack_message_id(initial_content);
 
         // Simulate new todos from API
@@ -1157,7 +1192,7 @@ mod tests {
 
         // Generate new markdown content
         let regenerated_content =
-            generate_markdown_content(&new_todos, &existing_todos, message_id.as_deref());
+            generate_markdown_content(&new_todos, &existing_todos, message_id.as_deref(), None);
 
         // Verify the message ID is preserved
         assert!(regenerated_content.starts_with("<!-- slack_message_id: 1234567890.123456 -->"));
@@ -1234,5 +1269,232 @@ mod tests {
         let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let expected = Path::new(&home_dir).join("slaist");
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_markdown_with_notes() {
+        let markdown = r#"## Active Todos
+
+- [ ] Write tests
+- [ ] Fix bug in parser
+
+## Completed Todos
+
+- [x] Review code
+
+---
+# My Notes
+
+This is some important information that I want to keep.
+
+## Meeting Notes
+- Discussed the new feature
+- Need to refactor the parser
+
+Some additional thoughts..."#;
+
+        let (todos, notes) = parse_existing_markdown(markdown);
+
+        assert_eq!(todos.len(), 3);
+        assert_eq!(todos[0], ("Write tests".to_string(), false));
+        assert_eq!(todos[1], ("Fix bug in parser".to_string(), false));
+        assert_eq!(todos[2], ("Review code".to_string(), true));
+
+        let expected_notes = r#"# My Notes
+
+This is some important information that I want to keep.
+
+## Meeting Notes
+- Discussed the new feature
+- Need to refactor the parser
+
+Some additional thoughts..."#;
+
+        assert_eq!(notes, Some(expected_notes.to_string()));
+    }
+
+    #[test]
+    fn test_generate_markdown_with_preserved_notes() {
+        let current_todos = vec![Todo {
+            id: "1".to_string(),
+            user_id: "user1".to_string(),
+            project_id: "proj1".to_string(),
+            section_id: None,
+            parent_id: None,
+            content: "New task".to_string(),
+            description: None,
+            priority: 1,
+            labels: vec![],
+            due: None,
+            deadline: None,
+            duration: None,
+            checked: false,
+            is_deleted: false,
+            added_at: "2023-01-01T00:00:00Z".to_string(),
+            completed_at: None,
+            updated_at: "2023-01-01T00:00:00Z".to_string(),
+            child_order: 1,
+            day_order: None,
+            is_collapsed: None,
+            added_by_uid: None,
+            assigned_by_uid: None,
+            responsible_uid: None,
+        }];
+
+        let existing_todos = vec![("Old task".to_string(), false)];
+
+        let notes = r#"# My Notes
+
+This is preserved content.
+
+## Important Links
+- https://example.com"#;
+
+        let markdown =
+            generate_markdown_content(&current_todos, &existing_todos, None, Some(notes));
+
+        assert!(markdown.contains("- [ ] New task"));
+        assert!(markdown.contains("- [x] Old task *(marked as finished)*"));
+        assert!(markdown.contains("---"));
+        assert!(markdown.contains("# My Notes"));
+        assert!(markdown.contains("This is preserved content."));
+        assert!(markdown.contains("https://example.com"));
+    }
+
+    #[test]
+    fn test_notes_section_ends_with_newline() {
+        let notes_without_newline = "# My Notes\nSome content";
+        let notes_with_newline = "# My Notes\nSome content\n";
+
+        let markdown1 = generate_markdown_content(&[], &[], None, Some(notes_without_newline));
+        let markdown2 = generate_markdown_content(&[], &[], None, Some(notes_with_newline));
+
+        // Both should end with exactly one newline
+        assert!(markdown1.ends_with('\n'));
+        assert!(markdown2.ends_with('\n'));
+
+        // Neither should end with double newlines
+        assert!(!markdown1.ends_with("\n\n"));
+        assert!(!markdown2.ends_with("\n\n"));
+    }
+
+    #[test]
+    fn test_full_workflow_with_notes_preservation() {
+        // Test the complete workflow: parse markdown with notes, generate new content, preserve notes
+        let original_content = r#"## Active Todos
+
+- [ ] Task A
+- [ ] Task B
+
+## Completed Todos
+
+- [x] Task C
+
+---
+# My Personal Notes
+
+## Meeting Notes
+- Important discussion about feature X
+- Deadline is next Friday
+
+## Links
+- [Documentation](https://example.com/docs)
+- [GitHub Issue](https://github.com/example/issue)
+
+Some additional thoughts and reminders..."#;
+
+        // Parse the original content
+        let (parsed_todos, parsed_notes) = parse_existing_markdown(original_content);
+
+        // Verify parsing worked correctly
+        assert_eq!(parsed_todos.len(), 3);
+        assert_eq!(parsed_todos[0], ("Task A".to_string(), false));
+        assert_eq!(parsed_todos[1], ("Task B".to_string(), false));
+        assert_eq!(parsed_todos[2], ("Task C".to_string(), true));
+        assert!(parsed_notes.is_some());
+        let notes = parsed_notes.as_ref().unwrap();
+        assert!(notes.contains("# My Personal Notes"));
+        assert!(notes.contains("Meeting Notes"));
+        assert!(notes.contains("https://example.com/docs"));
+
+        // Simulate new todos from API (Task A completed, Task B missing, new Task D)
+        let new_todos = vec![
+            Todo {
+                id: "1".to_string(),
+                user_id: "user1".to_string(),
+                project_id: "proj1".to_string(),
+                section_id: None,
+                parent_id: None,
+                content: "Task A".to_string(),
+                description: None,
+                priority: 1,
+                labels: vec![],
+                due: None,
+                deadline: None,
+                duration: None,
+                checked: true, // Now completed
+                is_deleted: false,
+                added_at: "2023-01-01T00:00:00Z".to_string(),
+                completed_at: Some("2023-01-01T12:00:00Z".to_string()),
+                updated_at: "2023-01-01T12:00:00Z".to_string(),
+                child_order: 1,
+                day_order: None,
+                is_collapsed: None,
+                added_by_uid: None,
+                assigned_by_uid: None,
+                responsible_uid: None,
+            },
+            Todo {
+                id: "4".to_string(),
+                user_id: "user1".to_string(),
+                project_id: "proj1".to_string(),
+                section_id: None,
+                parent_id: None,
+                content: "Task D".to_string(),
+                description: None,
+                priority: 1,
+                labels: vec![],
+                due: None,
+                deadline: None,
+                duration: None,
+                checked: false, // New active task
+                is_deleted: false,
+                added_at: "2023-01-01T00:00:00Z".to_string(),
+                completed_at: None,
+                updated_at: "2023-01-01T00:00:00Z".to_string(),
+                child_order: 4,
+                day_order: None,
+                is_collapsed: None,
+                added_by_uid: None,
+                assigned_by_uid: None,
+                responsible_uid: None,
+            },
+        ];
+
+        // Generate new markdown content
+        let regenerated_content =
+            generate_markdown_content(&new_todos, &parsed_todos, None, parsed_notes.as_deref());
+
+        // Verify the regenerated content
+        assert!(regenerated_content.contains("## Active Todos"));
+        assert!(regenerated_content.contains("- [ ] Task D")); // New active task
+        assert!(regenerated_content.contains("## Completed Todos"));
+        assert!(regenerated_content.contains("- [x] Task A")); // Completed in API
+        assert!(regenerated_content.contains("- [x] Task C")); // Previously completed, preserved
+        assert!(regenerated_content.contains("- [x] Task B *(marked as finished)*")); // Missing from API
+
+        // Most importantly, verify notes are preserved
+        assert!(regenerated_content.contains("---"));
+        assert!(regenerated_content.contains("# My Personal Notes"));
+        assert!(regenerated_content.contains("Meeting Notes"));
+        assert!(regenerated_content.contains("- Important discussion about feature X"));
+        assert!(regenerated_content.contains("[Documentation](https://example.com/docs)"));
+        assert!(regenerated_content.contains("Some additional thoughts and reminders..."));
+
+        // Verify the notes section is at the end
+        let parts: Vec<&str> = regenerated_content.split("---").collect();
+        assert_eq!(parts.len(), 2);
+        let notes_section = parts[1];
+        assert!(notes_section.contains("# My Personal Notes"));
     }
 }
