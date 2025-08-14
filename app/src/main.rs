@@ -286,11 +286,28 @@ fn add_slack_message_id(content: &str, message_id: &str) -> String {
 
 /// Filter out Slack message ID metadata from markdown content
 fn filter_slack_metadata(content: &str) -> String {
-    content
-        .lines()
-        .filter(|line| !line.starts_with("<!-- slack_message_id: ") || !line.ends_with(" -->"))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut result = Vec::new();
+    let mut in_notes_section = false;
+
+    for line in content.lines() {
+        // Skip Slack message ID comments
+        if line.starts_with("<!-- slack_message_id: ") && line.ends_with(" -->") {
+            continue;
+        }
+
+        // Stop processing when we hit the notes section delimiter
+        if line.trim() == "---" {
+            in_notes_section = true;
+            continue;
+        }
+
+        // Only include lines that are not in the notes section
+        if !in_notes_section {
+            result.push(line);
+        }
+    }
+
+    result.join("\n")
 }
 
 /// Validate that a message ID looks like a valid Slack timestamp
@@ -1091,6 +1108,54 @@ _No completed todos yet._
         assert!(filtered.contains("## Active Todos"));
         assert!(filtered.contains("- [ ] Test task"));
         assert!(filtered.contains("## Completed Todos"));
+    }
+
+    #[test]
+    fn test_filter_slack_metadata_with_notes() {
+        let content = r#"<!-- slack_message_id: 1234567890.123456 -->
+## Active Todos
+
+- [ ] Test task
+
+## Completed Todos
+
+- [x] Done task
+
+---
+## Private Notes
+
+This is a private note that should not be sent to Slack.
+More private content here.
+"#;
+        let filtered = filter_slack_metadata(content);
+        assert!(!filtered.contains("slack_message_id"));
+        assert!(filtered.contains("## Active Todos"));
+        assert!(filtered.contains("- [ ] Test task"));
+        assert!(filtered.contains("## Completed Todos"));
+        assert!(!filtered.contains("---"));
+        assert!(!filtered.contains("Private Notes"));
+        assert!(!filtered.contains("private note"));
+        assert!(!filtered.contains("private content"));
+    }
+
+    #[test]
+    fn test_filter_slack_metadata_notes_only() {
+        let content = r#"## Active Todos
+
+- [ ] Test task
+
+---
+## Meeting Notes
+
+- Had a call with the client
+- Discussed project timeline
+"#;
+        let filtered = filter_slack_metadata(content);
+        assert!(filtered.contains("## Active Todos"));
+        assert!(filtered.contains("- [ ] Test task"));
+        assert!(!filtered.contains("---"));
+        assert!(!filtered.contains("Meeting Notes"));
+        assert!(!filtered.contains("call with the client"));
     }
 
     #[test]
