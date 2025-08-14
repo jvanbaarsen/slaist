@@ -7,7 +7,6 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use todoist::{Todo, TodoistClient, TodoistError};
-use tokio::time::{Duration, sleep};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Config {
@@ -325,7 +324,7 @@ fn validate_message_id(message_id: &str) -> bool {
 
 #[tokio::main]
 async fn main() -> Result<(), TodoistError> {
-    println!("🚀 Todoist Client - Continuous Refresh");
+    println!("🚀 Todoist Client - Single Run");
     println!("=======================================");
 
     // Load configuration from TOML file
@@ -340,10 +339,8 @@ async fn main() -> Result<(), TodoistError> {
     // Create Todoist client
     let client = TodoistClient::new(config.todoist_api_token.clone(), config.filter.clone());
 
-    println!("📱 Fetching todos every 10 seconds... (Press Ctrl+C to stop)");
+    println!("📱 Fetching todos...");
     println!();
-
-    let mut iteration = 1;
 
     // Create the todos directory if it doesn't exist
     let slaist_dir = get_todos_directory(&config);
@@ -355,122 +352,117 @@ async fn main() -> Result<(), TodoistError> {
         );
     }
 
-    loop {
-        let now = Utc::now();
-        let timestamp = now.format("%Y-%m-%d %H:%M:%S UTC");
-        let date_str = now.format("%Y-%m-%d");
-        let filename = format!("{}.md", date_str);
-        let file_path = slaist_dir.join(&filename);
+    let now = Utc::now();
+    let timestamp = now.format("%Y-%m-%d %H:%M:%S UTC");
+    let date_str = now.format("%Y-%m-%d");
+    let filename = format!("{}.md", date_str);
+    let file_path = slaist_dir.join(&filename);
 
-        println!("🔄 Refresh #{} - {}", iteration, timestamp);
-        println!("{:-<60}", "");
+    println!("🔄 Processing - {}", timestamp);
+    println!("{:-<60}", "");
 
-        // Read existing markdown file if it exists
-        let (existing_todos, existing_message_id, preserved_notes) = if file_path.exists() {
-            match fs::read_to_string(&file_path) {
-                Ok(content) => {
-                    let (todos, notes) = parse_existing_markdown(&content);
-                    let message_id = extract_slack_message_id(&content);
-                    (todos, message_id, notes)
-                }
-                Err(_) => (Vec::new(), None, None),
+    // Read existing markdown file if it exists
+    let (existing_todos, existing_message_id, preserved_notes) = if file_path.exists() {
+        match fs::read_to_string(&file_path) {
+            Ok(content) => {
+                let (todos, notes) = parse_existing_markdown(&content);
+                let message_id = extract_slack_message_id(&content);
+                (todos, message_id, notes)
             }
-        } else {
-            (Vec::new(), None, None)
-        };
-
-        // Fetch all current todos (active and completed from recent days)
-        let all_current_todos = match client.get_all_todos().await {
-            Ok(todos) => {
-                println!("📋 Fetched {} todos total", todos.len());
-                todos
-            }
-            Err(e) => {
-                eprintln!("❌ Error fetching todos: {}", e);
-                match e {
-                    TodoistError::ApiError { status, .. } if status == 401 => {
-                        eprintln!("🔑 Check your API token - it might be invalid or expired");
-                    }
-                    TodoistError::RequestFailed(_) => {
-                        eprintln!("🌐 Network error - check your internet connection");
-                    }
-                    _ => {}
-                }
-                Vec::new()
-            }
-        };
-
-        println!("existing_todos: {:?}", existing_todos);
-
-        // Check which todos are missing for summary
-        let missing_count = existing_todos
-            .iter()
-            .filter(|(content, was_completed)| {
-                !was_completed && !all_current_todos.iter().any(|t| t.content == *content)
-            })
-            .count();
-
-        // Count previously completed todos that are being preserved
-        let preserved_count = existing_todos
-            .iter()
-            .filter(|(content, was_completed)| {
-                *was_completed && !all_current_todos.iter().any(|t| t.content == *content)
-            })
-            .count();
-
-        // Generate markdown content with comparison logic
-        let markdown_content = generate_markdown_content(
-            &all_current_todos,
-            &existing_todos,
-            existing_message_id.as_deref(),
-            preserved_notes.as_deref(),
-        );
-
-        // Display summary
-        let active_count = all_current_todos.iter().filter(|t| !t.checked).count();
-        let completed_count = all_current_todos.iter().filter(|t| t.checked).count();
-
-        println!("📊 Summary:");
-        println!("   Active: {}", active_count);
-        println!("   Completed: {}", completed_count);
-        if missing_count > 0 {
-            println!("   Marked as finished: {}", missing_count);
+            Err(_) => (Vec::new(), None, None),
         }
-        if preserved_count > 0 {
-            println!("   Preserved from previous: {}", preserved_count);
-        }
+    } else {
+        (Vec::new(), None, None)
+    };
 
-        match fs::File::create(&file_path) {
-            Ok(mut file) => {
-                if let Err(e) = file.write_all(markdown_content.as_bytes()) {
-                    eprintln!(
-                        "⚠️  Warning: Could not write to file {}: {}",
-                        file_path.display(),
-                        e
-                    );
-                } else {
-                    println!("💾 Saved to: {}", file_path.display());
+    // Fetch all current todos (active and completed from recent days)
+    let all_current_todos = match client.get_all_todos().await {
+        Ok(todos) => {
+            println!("📋 Fetched {} todos total", todos.len());
+            todos
+        }
+        Err(e) => {
+            eprintln!("❌ Error fetching todos: {}", e);
+            match e {
+                TodoistError::ApiError { status, .. } if status == 401 => {
+                    eprintln!("🔑 Check your API token - it might be invalid or expired");
                 }
+                TodoistError::RequestFailed(_) => {
+                    eprintln!("🌐 Network error - check your internet connection");
+                }
+                _ => {}
             }
-            Err(e) => {
+            Vec::new()
+        }
+    };
+
+    println!("existing_todos: {:?}", existing_todos);
+
+    // Check which todos are missing for summary
+    let missing_count = existing_todos
+        .iter()
+        .filter(|(content, was_completed)| {
+            !was_completed && !all_current_todos.iter().any(|t| t.content == *content)
+        })
+        .count();
+
+    // Count previously completed todos that are being preserved
+    let preserved_count = existing_todos
+        .iter()
+        .filter(|(content, was_completed)| {
+            *was_completed && !all_current_todos.iter().any(|t| t.content == *content)
+        })
+        .count();
+
+    // Generate markdown content with comparison logic
+    let markdown_content = generate_markdown_content(
+        &all_current_todos,
+        &existing_todos,
+        existing_message_id.as_deref(),
+        preserved_notes.as_deref(),
+    );
+
+    // Display summary
+    let active_count = all_current_todos.iter().filter(|t| !t.checked).count();
+    let completed_count = all_current_todos.iter().filter(|t| t.checked).count();
+
+    println!("📊 Summary:");
+    println!("   Active: {}", active_count);
+    println!("   Completed: {}", completed_count);
+    if missing_count > 0 {
+        println!("   Marked as finished: {}", missing_count);
+    }
+    if preserved_count > 0 {
+        println!("   Preserved from previous: {}", preserved_count);
+    }
+
+    match fs::File::create(&file_path) {
+        Ok(mut file) => {
+            if let Err(e) = file.write_all(markdown_content.as_bytes()) {
                 eprintln!(
-                    "⚠️  Warning: Could not create file {}: {}",
+                    "⚠️  Warning: Could not write to file {}: {}",
                     file_path.display(),
                     e
                 );
+            } else {
+                println!("💾 Saved to: {}", file_path.display());
             }
         }
-
-        let _ = post_slack(&config).await;
-
-        println!("\n{:-<60}", "");
-        println!("⏳ Waiting 10 seconds until next refresh...");
-        println!();
-
-        // Wait 10 seconds before next iteration
-        sleep(Duration::from_secs(10)).await;
-        iteration += 1;
+        Err(e) => {
+            eprintln!(
+                "⚠️  Warning: Could not create file {}: {}",
+                file_path.display(),
+                e
+            );
+        }
     }
+
+    let _ = post_slack(&config).await;
+
+    println!("\n{:-<60}", "");
+    println!("✅ Complete!");
+
+    Ok(())
 }
 
 async fn post_slack(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
